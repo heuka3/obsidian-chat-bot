@@ -253,10 +253,111 @@
     letter-spacing: 0.5px;
 }
 
+/* 마크다운 렌더링된 메시지 스타일 */
 .chatbot-message-content {
     font-size: 13px;
     line-height: 1.4;
     word-wrap: break-word;
+}
+
+/* AI 메시지 내 마크다운 요소 스타일 */
+.chatbot-message-assistant .chatbot-message-content h1,
+.chatbot-message-assistant .chatbot-message-content h2,
+.chatbot-message-assistant .chatbot-message-content h3,
+.chatbot-message-assistant .chatbot-message-content h4,
+.chatbot-message-assistant .chatbot-message-content h5,
+.chatbot-message-assistant .chatbot-message-content h6 {
+    margin: 0.5em 0 0.3em 0;
+    font-weight: 600;
+    color: var(--text-normal);
+}
+
+.chatbot-message-assistant .chatbot-message-content h1 { font-size: 1.4em; }
+.chatbot-message-assistant .chatbot-message-content h2 { font-size: 1.3em; }
+.chatbot-message-assistant .chatbot-message-content h3 { font-size: 1.2em; }
+.chatbot-message-assistant .chatbot-message-content h4 { font-size: 1.1em; }
+.chatbot-message-assistant .chatbot-message-content h5 { font-size: 1em; }
+.chatbot-message-assistant .chatbot-message-content h6 { font-size: 0.9em; }
+
+.chatbot-message-assistant .chatbot-message-content p {
+    margin: 0.4em 0;
+    line-height: 1.5;
+}
+
+.chatbot-message-assistant .chatbot-message-content code {
+    background: var(--background-modifier-border);
+    padding: 2px 4px;
+    border-radius: 3px;
+    font-family: var(--font-monospace);
+    font-size: 0.9em;
+}
+
+.chatbot-message-assistant .chatbot-message-content pre {
+    background: var(--background-modifier-border);
+    padding: 8px 12px;
+    border-radius: 4px;
+    margin: 0.5em 0;
+    overflow-x: auto;
+    border: 1px solid var(--background-modifier-border-hover);
+}
+
+.chatbot-message-assistant .chatbot-message-content pre code {
+    background: transparent;
+    padding: 0;
+    font-size: 0.85em;
+}
+
+.chatbot-message-assistant .chatbot-message-content ul,
+.chatbot-message-assistant .chatbot-message-content ol {
+    margin: 0.5em 0;
+    padding-left: 1.5em;
+}
+
+.chatbot-message-assistant .chatbot-message-content li {
+    margin: 0.2em 0;
+}
+
+.chatbot-message-assistant .chatbot-message-content blockquote {
+    border-left: 3px solid var(--interactive-accent);
+    padding-left: 12px;
+    margin: 0.5em 0;
+    color: var(--text-muted);
+    font-style: italic;
+}
+
+.chatbot-message-assistant .chatbot-message-content strong {
+    font-weight: 600;
+    color: var(--text-normal);
+}
+
+.chatbot-message-assistant .chatbot-message-content em {
+    font-style: italic;
+}
+
+.chatbot-message-assistant .chatbot-message-content table {
+    border-collapse: collapse;
+    margin: 0.5em 0;
+    font-size: 0.9em;
+}
+
+.chatbot-message-assistant .chatbot-message-content table th,
+.chatbot-message-assistant .chatbot-message-content table td {
+    border: 1px solid var(--background-modifier-border);
+    padding: 4px 8px;
+}
+
+.chatbot-message-assistant .chatbot-message-content table th {
+    background: var(--background-modifier-border);
+    font-weight: 600;
+}
+
+.chatbot-message-assistant .chatbot-message-content a {
+    color: var(--link-color);
+    text-decoration: none;
+}
+
+.chatbot-message-assistant .chatbot-message-content a:hover {
+    text-decoration: underline;
 }
 
 /* Settings validation styles */

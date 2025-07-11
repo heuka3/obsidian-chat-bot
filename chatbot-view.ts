@@ -1,4 +1,4 @@
-import { ItemView, WorkspaceLeaf, Notice } from "obsidian";
+import { ItemView, WorkspaceLeaf, Notice, MarkdownRenderer } from "obsidian";
 import { OpenAIService, ChatMessage } from "./openai-service";
 
 export const VIEW_TYPE_CHATBOT = "chatbot-view";
@@ -265,9 +265,17 @@ export class ChatbotView extends ItemView {
         });
 
         const contentEl = messageEl.createEl("div", {
-            text: message,
             cls: "chatbot-message-content"
         });
+
+        // 마크다운 렌더링 적용
+        if (sender === "assistant") {
+            // AI 메시지의 경우 마크다운 렌더링 (새로운 API 사용)
+            MarkdownRenderer.render(this.app, message, contentEl, '', this);
+        } else {
+            // 사용자 메시지는 일반 텍스트로 표시
+            contentEl.textContent = message;
+        }
 
         // 액션 버튼 컨테이너 추가
         const actionsEl = messageEl.createEl("div", {
