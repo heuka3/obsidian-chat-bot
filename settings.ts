@@ -4,7 +4,8 @@ import { ChatbotPluginSettings } from "./types";
 export const DEFAULT_SETTINGS: ChatbotPluginSettings = {
     openaiApiKey: "",
     model: "gpt-4.1",
-    maxTokens: 1000
+    maxTokens: 1000,
+    chatHistoryFolder: "ChatHistory"
 };
 
 export type { ChatbotPluginSettings };
@@ -76,6 +77,20 @@ export class ChatbotSettingTab extends PluginSettingTab {
                     .setDynamicTooltip()
                     .onChange(async (value) => {
                         this.plugin.settings.maxTokens = value;
+                        await this.plugin.saveSettings();
+                    });
+            });
+
+        // 대화 내역 저장 폴더 설정
+        new Setting(containerEl)
+            .setName("대화 내역 저장 폴더")
+            .setDesc("대화 내역을 저장할 폴더명을 설정합니다.")
+            .addText(text => {
+                text
+                    .setPlaceholder("ChatHistory")
+                    .setValue(this.plugin.settings.chatHistoryFolder || "ChatHistory")
+                    .onChange(async (value) => {
+                        this.plugin.settings.chatHistoryFolder = value.trim() || "ChatHistory";
                         await this.plugin.saveSettings();
                     });
             });

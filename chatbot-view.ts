@@ -1,4 +1,4 @@
-import { ItemView, WorkspaceLeaf } from "obsidian";
+import { ItemView, WorkspaceLeaf, Notice } from "obsidian";
 import { OpenAIService, ChatMessage } from "./openai-service";
 
 export const VIEW_TYPE_CHATBOT = "chatbot-view";
@@ -102,9 +102,32 @@ export class ChatbotView extends ItemView {
 
         // 설정 버튼 클릭 이벤트
         settingsButton.addEventListener("click", () => {
-            // 플러그인 설정 탭 열기, 일단 편의를 위해 전체 설정 페이지만 열게함, 나중에 이 플러그인 설정 탭으로 이동하게끔 수정해야함.
+            // 플러그인 설정 탭 열기, 일단 편의를 위해 전체 설정 페이지만 열게함
             (this.app as any).setting.open();
+            // TODO: 나중에 플러그인 설정 탭으로 이동하게끔 수정해야함.
             //(this.app as any).setting.openTabById('openai-chatbot');
+        });
+
+        // 대화 내역 저장 버튼
+        const saveButton = buttonContainer.createEl("button", {
+            text: "💾",
+            cls: "chatbot-save-button"
+        });
+
+        // 저장 버튼 클릭 이벤트
+        saveButton.addEventListener("click", async () => {
+            await this.saveChatHistory();
+        });
+
+        // 대화 내역 초기화 버튼
+        const clearButton = buttonContainer.createEl("button", {
+            text: "🗑️",
+            cls: "chatbot-clear-button"
+        });
+
+        // 초기화 버튼 클릭 이벤트
+        clearButton.addEventListener("click", () => {
+            this.clearChatHistory(messagesContainer);
         });
 
         // 전송 버튼 (이모지 사용)
@@ -246,6 +269,33 @@ export class ChatbotView extends ItemView {
             cls: "chatbot-message-content"
         });
 
+        // 액션 버튼 컨테이너 추가
+        const actionsEl = messageEl.createEl("div", {
+            cls: "chatbot-message-actions"
+        });
+
+        // 복사 버튼 (모든 메시지에 추가)
+        const copyBtn = actionsEl.createEl("button", {
+            text: "📋",
+            cls: "chatbot-message-action-btn copy-btn"
+        });
+        
+        copyBtn.addEventListener("click", () => {
+            this.copyMessageToClipboard(message);
+        });
+
+        // 삭제 버튼 (사용자 메시지에만 추가)
+        if (sender === "user") {
+            const deleteBtn = actionsEl.createEl("button", {
+                text: "🗑️",
+                cls: "chatbot-message-action-btn delete-btn"
+            });
+            
+            deleteBtn.addEventListener("click", () => {
+                this.deleteMessagePair(messageEl, container);
+            });
+        }
+
         // 스크롤을 맨 아래로
         container.scrollTop = container.scrollHeight;
         
@@ -257,7 +307,248 @@ export class ChatbotView extends ItemView {
         this.openaiService.clearHistory(); // 대화 기록도 초기화
     }
 
+    // 대화 내역 저장 메서드
+    private async saveChatHistory() {
+        const history = this.openaiService.getHistory();
+        
+        if (history.length === 0) {
+            new Notice("저장할 대화 내역이 없습니다.");
+            return;
+        }
+
+        try {
+            // 저장할 폴더 경로 가져오기
+            const folderPath = this.plugin?.settings?.chatHistoryFolder || "ChatHistory";
+            
+            // 폴더가 존재하지 않으면 생성
+            const folder = this.app.vault.getAbstractFileByPath(folderPath);
+            if (!folder) {
+                await this.app.vault.createFolder(folderPath);
+            }
+
+            // 파일명 생성 (YYYY_MM_DD_HH_MM 형식)
+            const now = new Date();
+            const year = now.getFullYear();
+            const month = String(now.getMonth() + 1).padStart(2, '0');
+            const day = String(now.getDate()).padStart(2, '0');
+            const hour = String(now.getHours()).padStart(2, '0');
+            const minute = String(now.getMinutes()).padStart(2, '0');
+            
+            let baseFileName = `${year}_${month}_${day}_${hour}_${minute}`;
+            let fileName = `${baseFileName}.md`;
+            let filePath = `${folderPath}/${fileName}`;
+            
+            // 파일명 중복 체크 및 처리
+            let counter = 0;
+            while (this.app.vault.getAbstractFileByPath(filePath)) {
+                counter++;
+                fileName = `${baseFileName}_${counter}.md`;
+                filePath = `${folderPath}/${fileName}`;
+            }
+
+            // 대화 내역을 마크다운 형식으로 변환
+            const content = this.formatChatHistory(history);
+            
+            // 파일 생성
+            await this.app.vault.create(filePath, content);
+            
+            new Notice(`대화 내역이 ${fileName}로 저장되었습니다.`);
+            
+        } catch (error) {
+            console.error('대화 내역 저장 중 오류 발생:', error);
+            new Notice("대화 내역 저장 중 오류가 발생했습니다.");
+        }
+    }
+
+    // 대화 내역을 마크다운 형식으로 변환
+    private formatChatHistory(history: ChatMessage[]): string {
+        const formattedMessages = history.map(msg => {
+            const roleLabel = msg.role === 'user' ? 'User' : 
+                             msg.role === 'assistant' ? 'AI' : 
+                             'System';
+            return `**${roleLabel}**:\n${msg.content}\n`;
+        });
+        
+        const now = new Date();
+        const dateStr = now.toLocaleString('ko-KR', {
+            year: 'numeric',
+            month: '2-digit',
+            day: '2-digit',
+            hour: '2-digit',
+            minute: '2-digit',
+            second: '2-digit'
+        });
+        
+        return `# 대화 내역\n\n저장 시간: ${dateStr}\n\n---\n\n${formattedMessages.join('\n')}`;
+    }
+
     async onClose() {
         // 정리 작업이 필요하면 여기에 추가
+    }
+
+    // 대화 내역 초기화 메서드 (사용자 확인 포함)
+    private clearChatHistory(messagesContainer: HTMLElement) {
+        const history = this.openaiService.getHistory();
+        
+        if (history.length === 0) {
+            new Notice("초기화할 대화 내역이 없습니다.");
+            return;
+        }
+
+        // 사용자 확인 창 표시
+        const confirmModal = document.createElement('div');
+        confirmModal.className = 'chatbot-modal-container';
+        confirmModal.innerHTML = `
+            <div class="chatbot-modal">
+                <div class="chatbot-modal-bg"></div>
+                <div class="chatbot-modal-content">
+                    <div class="chatbot-modal-header">
+                        <h2>대화 내역 초기화</h2>
+                    </div>
+                    <div class="chatbot-modal-body">
+                        <p>현재 대화 내역을 모두 삭제하시겠습니까?</p>
+                        <p style="color: var(--text-muted); font-size: 12px;">이 작업은 되돌릴 수 없습니다.</p>
+                    </div>
+                    <div class="chatbot-modal-footer">
+                        <button class="mod-cta" id="confirm-clear">삭제</button>
+                        <button id="cancel-clear">취소</button>
+                    </div>
+                </div>
+            </div>
+        `;
+
+        document.body.appendChild(confirmModal);
+
+        // 확인 버튼 클릭 이벤트
+        const confirmBtn = confirmModal.querySelector('#confirm-clear');
+        const cancelBtn = confirmModal.querySelector('#cancel-clear');
+
+        confirmBtn?.addEventListener('click', () => {
+            this.clearChat(messagesContainer);
+            new Notice("대화 내역이 초기화되었습니다.");
+            document.body.removeChild(confirmModal);
+        });
+
+        // 취소 버튼 클릭 이벤트
+        cancelBtn?.addEventListener('click', () => {
+            document.body.removeChild(confirmModal);
+        });
+
+        // 배경 클릭 시 모달 닫기
+        const modalBg = confirmModal.querySelector('.chatbot-modal-bg');
+        modalBg?.addEventListener('click', () => {
+            document.body.removeChild(confirmModal);
+        });
+    }
+
+    // 메시지를 클립보드에 복사하는 메서드
+    private async copyMessageToClipboard(message: string) {
+        try {
+            await navigator.clipboard.writeText(message);
+            new Notice("메시지가 클립보드에 복사되었습니다.");
+        } catch (error) {
+            console.error('클립보드 복사 실패:', error);
+            new Notice("클립보드 복사에 실패했습니다.");
+        }
+    }
+
+    // 대화쌍을 삭제하는 메서드
+    private deleteMessagePair(userMessageEl: HTMLElement, container: HTMLElement) {
+        // 사용자 메시지의 내용 가져오기
+        const userContent = userMessageEl.querySelector('.chatbot-message-content')?.textContent;
+        if (!userContent) return;
+
+        // 현재 메시지 이후의 다음 메시지(AI 응답) 찾기
+        const nextMessageEl = userMessageEl.nextElementSibling as HTMLElement;
+        const isNextMessageAssistant = nextMessageEl?.classList.contains('chatbot-message-assistant');
+
+        // 확인 모달 표시
+        const confirmModal = document.createElement('div');
+        confirmModal.className = 'chatbot-modal-container';
+        confirmModal.innerHTML = `
+            <div class="chatbot-modal">
+                <div class="chatbot-modal-bg"></div>
+                <div class="chatbot-modal-content">
+                    <div class="chatbot-modal-header">
+                        <h2>대화쌍 삭제</h2>
+                    </div>
+                    <div class="chatbot-modal-body">
+                        <p>이 대화쌍을 삭제하시겠습니까?</p>
+                        <div style="background: var(--background-modifier-border); padding: 8px; border-radius: 4px; margin: 8px 0; font-size: 12px; max-height: 100px; overflow-y: auto;">
+                            <strong>사용자:</strong> ${userContent}
+                            ${isNextMessageAssistant ? `<br><br><strong>AI:</strong> ${nextMessageEl.querySelector('.chatbot-message-content')?.textContent || ''}` : ''}
+                        </div>
+                        <p style="color: var(--text-muted); font-size: 12px;">이 작업은 되돌릴 수 없습니다.</p>
+                    </div>
+                    <div class="chatbot-modal-footer">
+                        <button class="mod-cta" id="confirm-delete-pair">삭제</button>
+                        <button id="cancel-delete-pair">취소</button>
+                    </div>
+                </div>
+            </div>
+        `;
+
+        document.body.appendChild(confirmModal);
+
+        // 확인 버튼 클릭 이벤트
+        const confirmBtn = confirmModal.querySelector('#confirm-delete-pair');
+        const cancelBtn = confirmModal.querySelector('#cancel-delete-pair');
+
+        confirmBtn?.addEventListener('click', () => {
+            // 대화 기록에서 해당 메시지들 제거
+            const assistantContent = isNextMessageAssistant ? nextMessageEl.querySelector('.chatbot-message-content')?.textContent || null : null;
+            this.removeMessagePairFromHistory(userContent, assistantContent);
+            
+            // UI에서 메시지 제거
+            userMessageEl.remove();
+            if (isNextMessageAssistant && nextMessageEl) {
+                nextMessageEl.remove();
+            }
+            
+            new Notice("대화쌍이 삭제되었습니다.");
+            document.body.removeChild(confirmModal);
+        });
+
+        // 취소 버튼 클릭 이벤트
+        cancelBtn?.addEventListener('click', () => {
+            document.body.removeChild(confirmModal);
+        });
+
+        // 배경 클릭 시 모달 닫기
+        const modalBg = confirmModal.querySelector('.chatbot-modal-bg');
+        modalBg?.addEventListener('click', () => {
+            document.body.removeChild(confirmModal);
+        });
+    }
+
+    // 대화 기록에서 특정 메시지 쌍 제거
+    private removeMessagePairFromHistory(userMessage: string, assistantMessage: string | null) {
+        const history = this.openaiService.getHistory();
+        const newHistory: ChatMessage[] = [];
+        
+        for (let i = 0; i < history.length; i++) {
+            const current = history[i];
+            const next = history[i + 1];
+            
+            // 사용자 메시지와 다음 AI 메시지가 삭제 대상인지 확인
+            if (current.role === 'user' && current.content === userMessage) {
+                if (assistantMessage && next && next.role === 'assistant' && next.content === assistantMessage) {
+                    // 두 메시지 모두 건너뛰기
+                    i++; // 다음 메시지(AI 응답)도 건너뛰기
+                } else if (!assistantMessage) {
+                    // 사용자 메시지만 건너뛰기
+                }
+                // 현재 메시지 건너뛰기
+                continue;
+            }
+            
+            newHistory.push(current);
+        }
+        
+        // 새로운 히스토리로 교체
+        this.openaiService.clearHistory();
+        newHistory.forEach(msg => {
+            this.openaiService.addMessage(msg.role, msg.content);
+        });
     }
 }
