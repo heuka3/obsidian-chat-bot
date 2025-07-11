@@ -1,8 +1,175 @@
-/*
+/* Chatbot Plugin Styles */
 
-This CSS file will be included with your plugin, and
-available in the app when your plugin is enabled.
+.chatbot-container {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    max-height: 100%;
+    padding: 0px 0px;
+    box-sizing: border-box;
+    overflow: hidden;
+}
 
-If your plugin does not need CSS, delete this file.
+.chatbot-title {
+    margin: 0 0 10px 0;
+    padding: 0 10px;
+    font-size: 18px;
+    font-weight: bold;
+}
 
-*/
+.chatbot-messages {
+    flex: 1;
+    overflow-y: auto;
+    margin-bottom: 0px;
+    padding: 10px;
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 5px;
+    background: var(--background-primary);
+}
+
+/* 입력 영역 전체 섹션 */
+.chatbot-input-section {
+    border-top: 1px solid var(--background-modifier-border);
+    background: var(--background-secondary);
+    position: sticky;
+    bottom: 0;
+}
+
+/* 메시지 입력창 컨테이너 */
+.chatbot-input-container {
+    padding: 1px, 1px, 0px; /* 8px → 4px로 줄임 */
+    display: flex;
+    justify-content: center; /* 가로 중앙 정렬 */
+    align-items: center;
+}
+
+.chatbot-input {
+    width: 99%;
+    min-height: 28px; /* 32px → 28px로 줄임 */
+    max-height: 120px; /* 최대 높이 */
+    padding: 2px 6px; /* 6px 10px → 4px 8px로 줄임 */
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 6px; /* 8px → 6px로 줄임 */
+    background: var(--background-primary);
+    color: var(--text-normal);
+    font-size: 12px;
+    font-family: inherit;
+    line-height: 1.2;
+    resize: none;
+    transition: height 0.1s ease;
+    outline: none;
+    box-sizing: border-box;
+}
+
+.chatbot-input:focus {
+    border-color: var(--interactive-accent);
+    box-shadow: 0 0 0 1px var(--interactive-accent-hover); /* 2px → 1px로 줄임 */
+}
+
+/* 하단 버튼 영역 */
+.chatbot-button-container {
+    display: flex;
+    justify-content: flex-end;
+    align-items: center;
+    gap: 4px; /* 6px → 4px로 줄임 */
+    padding: 0px 2px 0px; /* 모든 패딩을 절반으로 줄임 */
+    background: var(--background-secondary);
+}
+
+.chatbot-send-button {
+    width: 24px; /* 28px → 24px로 줄임 */
+    height: 24px; /* 28px → 24px로 줄임 */
+    padding: 0;
+    background: var(--interactive-accent);
+    color: var(--text-on-accent);
+    border: none;
+    border-radius: 50%;
+    cursor: pointer;
+    font-size: 12px; /* 14px → 12px로 줄임 */
+    font-weight: normal;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    transition: all 0.2s ease;
+}
+
+.chatbot-send-button:hover {
+    background: var(--interactive-accent-hover);
+    transform: scale(1.05);
+}
+
+.chatbot-settings-button {
+    width: 24px;
+    height: 24px;
+    padding: 0;
+    background: var(--background-modifier-border-hover);
+    color: var(--text-muted);
+    border: none;
+    border-radius: 50%;
+    cursor: pointer;
+    font-size: 12px;
+    font-weight: normal;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    transition: all 0.2s ease;
+    margin-right: 4px; /* 전송 버튼과의 간격 */
+}
+
+.chatbot-settings-button:hover {
+    background: var(--background-modifier-border-focus);
+    color: var(--text-normal);
+    transform: scale(1.05);
+}
+
+.chatbot-message {
+    margin-bottom: 8px;
+    padding: 6px 8px;
+    border-radius: 4px;
+}
+
+.chatbot-message-user {
+    background: var(--background-modifier-hover);
+    margin-left: 20px;
+}
+
+.chatbot-message-assistant {
+    background: var(--background-secondary);
+    margin-right: 20px;
+}
+
+.chatbot-message-sender {
+    font-size: 11px;
+    font-weight: bold;
+    margin-bottom: 3px;
+    opacity: 0.7;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.chatbot-message-content {
+    font-size: 13px;
+    line-height: 1.4;
+    word-wrap: break-word;
+}
+
+/* Settings validation styles */
+.setting-validation-success {
+    color: var(--text-success);
+    font-size: 12px;
+    margin-top: 4px;
+    padding: 4px 8px;
+    background: var(--background-modifier-success);
+    border-radius: 4px;
+}
+
+.setting-validation-error {
+    color: var(--text-error);
+    font-size: 12px;
+    margin-top: 4px;
+    padding: 4px 8px;
+    background: var(--background-modifier-error);
+    border-radius: 4px;
+}
