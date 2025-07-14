@@ -1,4 +1,6 @@
 import { ChatMessage } from "./types";
+import { GoogleGenAI, Type } from "@google/genai";
+//genai라이브러리 기반으로 docs참고해서 mcp연결 및 function calling 기능 구현하기
 
 export class GeminiService {
     private apiKey: string = '';

@@ -58,6 +58,20 @@ export default class ChatbotPlugin extends Plugin {
     });
   }
 
+  // 모델 변경 시 호출되는 메서드
+  onModelChanged(model: string) {
+    console.log('AI model changed to:', model);
+    
+    // 현재 열린 모든 ChatbotView 인스턴스에 모델 변경 알림 (대화 내역 초기화)
+    const leaves = this.app.workspace.getLeavesOfType(VIEW_TYPE_CHATBOT);
+    leaves.forEach(leaf => {
+      const view = leaf.view as ChatbotView;
+      if (view && view.onModelChanged) {
+        view.onModelChanged(model);
+      }
+    });
+  }
+
   async onunload() {
     console.log('unloading plugin: chatbot-plugin')
   }

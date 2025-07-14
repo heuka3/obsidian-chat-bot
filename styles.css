@@ -244,6 +244,17 @@
     margin-right: 20px;
 }
 
+.chatbot-message-system {
+    background: var(--background-modifier-border);
+    margin: 10px 20px;
+    text-align: center;
+    font-style: italic;
+    color: var(--text-muted);
+    border-radius: 8px;
+    padding: 8px 12px;
+    font-size: 12px;
+}
+
 .chatbot-message-sender {
     font-size: 11px;
     font-weight: bold;

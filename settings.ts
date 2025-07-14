@@ -5,7 +5,7 @@ export const DEFAULT_SETTINGS: ChatbotPluginSettings = {
     aiProvider: "openai",
     openaiApiKey: "",
     geminiApiKey: "",
-    model: "gpt-4o",
+    model: "gpt-4.1",
     maxTokens: 1000,
     chatHistoryFolder: "ChatHistory"
 };
@@ -29,7 +29,7 @@ export class ChatbotSettingTab extends PluginSettingTab {
         // AI 제공자 선택
         new Setting(containerEl)
             .setName("AI 제공자")
-            .setDesc("사용할 AI 서비스를 선택하세요.")
+            .setDesc("사용할 AI 서비스를 선택하세요. 현재는 gemini만 mcp연결 가능합니다.")
             .addDropdown(dropdown => {
                 dropdown
                     .addOption("openai", "OpenAI")
@@ -79,7 +79,7 @@ export class ChatbotSettingTab extends PluginSettingTab {
         if (this.plugin.settings.aiProvider === 'gemini') {
             new Setting(containerEl)
                 .setName("Gemini API Key")
-                .setDesc("Google Gemini API 키를 입력하세요.")
+                .setDesc("Google Gemini API 키를 입력하세요.(채팅 중간에 API 키를 변경하지 마세요)")
                 .addText(text => {
                     text
                         .setPlaceholder("AIza...")
@@ -122,6 +122,11 @@ export class ChatbotSettingTab extends PluginSettingTab {
                     .onChange(async (value) => {
                         this.plugin.settings.model = value;
                         await this.plugin.saveSettings();
+                        
+                        // 모델 변경 시 플러그인에 알림 (대화 내역 초기화)
+                        if (this.plugin.onModelChanged) {
+                            this.plugin.onModelChanged(value);
+                        }
                     });
             });
 

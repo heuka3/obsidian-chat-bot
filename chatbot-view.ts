@@ -59,6 +59,33 @@ export class ChatbotView extends ItemView {
         return this.currentProvider === 'openai' ? this.openaiService : this.geminiService;
     }
 
+    // 모델 변경 시 호출되는 메서드 (대화 내역 초기화)
+    onModelChanged(model: string) {
+        console.log('Model changed in ChatbotView:', model);
+        
+        // 현재 활성화된 서비스의 대화 내역 초기화
+        this.getCurrentService().clearHistory();
+        
+        // UI에서 메시지 컨테이너 찾아서 초기화
+        const messagesContainer = this.containerEl.querySelector('.chatbot-messages') as HTMLElement;
+        if (messagesContainer) {
+            messagesContainer.empty();
+        }
+        
+        // 사용자에게 알림
+        if (messagesContainer) {
+            const notificationEl = messagesContainer.createEl("div", {
+                cls: "chatbot-message chatbot-message-system",
+                text: `모델이 ${model}로 변경되었습니다. 대화 내역이 초기화되었습니다.`
+            });
+            
+            // 3초 후 알림 메시지 제거
+            setTimeout(() => {
+                notificationEl.remove();
+            }, 3000);
+        }
+    }
+
     getViewType() {
         return VIEW_TYPE_CHATBOT;
     }
@@ -74,11 +101,6 @@ export class ChatbotView extends ItemView {
             this.openaiService.setApiKey(this.plugin.settings.openaiApiKey);
             this.geminiService.setApiKey(this.plugin.settings.geminiApiKey);
         }
-        
-        // 디버깅을 위한 로그
-        // console.log('contentEl:', this.contentEl);
-        // console.log('contentEl children length:', this.contentEl.children.length);
-        // console.log('contentEl children:', this.contentEl.children);
         
         // contentEl이 비어있다면 직접 사용
         let container: HTMLElement;
@@ -271,7 +293,7 @@ export class ChatbotView extends ItemView {
             try {
                 // 현재 설정된 모델 가져오기
                 const model = this.plugin?.settings?.model || 
-                    (this.currentProvider === 'openai' ? 'gpt-4o' : 'gemini-1.5-pro');
+                    (this.currentProvider === 'openai' ? 'gpt-4.1' : 'gemini-2.5-flash');
                 
                 // AI API 호출
                 const response = await currentService.sendMessage(model);
