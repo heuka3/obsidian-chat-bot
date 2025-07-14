@@ -1,3 +1,9 @@
+export interface MCPServer {
+    name: string;
+    path: string;
+    enabled: boolean;
+}
+
 export interface ChatbotPluginSettings {
     aiProvider: 'openai' | 'gemini';
     openaiApiKey: string;
@@ -5,6 +11,7 @@ export interface ChatbotPluginSettings {
     model?: string;
     maxTokens?: number;
     chatHistoryFolder?: string;
+    mcpServers?: MCPServer[];
 }
 
 export interface ChatMessage {

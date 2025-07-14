@@ -24,6 +24,13 @@ export class ChatbotView extends ItemView {
             this.currentProvider = this.plugin.settings.aiProvider || 'openai';
             this.openaiService.setApiKey(this.plugin.settings.openaiApiKey);
             this.geminiService.setApiKey(this.plugin.settings.geminiApiKey);
+            
+            // Gemini 서비스에 MCP 서버 설정
+            if (this.currentProvider === 'gemini' && this.plugin.settings.mcpServers) {
+                this.geminiService.updateMCPServers(this.plugin.settings.mcpServers).catch(error => {
+                    console.error('Error initializing MCP servers:', error);
+                });
+            }
         }
     }
 
@@ -50,6 +57,13 @@ export class ChatbotView extends ItemView {
             currentService.clearHistory();
             history.forEach(msg => {
                 currentService.addMessage(msg.role, msg.content);
+            });
+        }
+        
+        // Gemini로 변경 시 MCP 서버 설정
+        if (provider === 'gemini' && this.plugin?.settings?.mcpServers) {
+            this.geminiService.updateMCPServers(this.plugin.settings.mcpServers).catch(error => {
+                console.error('Error updating MCP servers on provider change:', error);
             });
         }
     }
@@ -86,6 +100,34 @@ export class ChatbotView extends ItemView {
         }
     }
 
+    // MCP 서버 설정 업데이트 메서드
+    async updateMCPServers() {
+        console.log('MCP servers updated in ChatbotView');
+        
+        if (this.currentProvider === 'gemini' && this.plugin?.settings?.mcpServers) {
+            try {
+                await this.geminiService.updateMCPServers(this.plugin.settings.mcpServers);
+                
+                // 사용자에게 알림
+                const messagesContainer = this.containerEl.querySelector('.chatbot-messages') as HTMLElement;
+                if (messagesContainer) {
+                    const notificationEl = messagesContainer.createEl("div", {
+                        cls: "chatbot-message chatbot-message-system",
+                        text: "MCP 서버 설정이 업데이트되었습니다."
+                    });
+                    
+                    // 3초 후 알림 메시지 제거
+                    setTimeout(() => {
+                        notificationEl.remove();
+                    }, 3000);
+                }
+            } catch (error) {
+                console.error('Error updating MCP servers:', error);
+                new Notice('MCP 서버 업데이트 중 오류가 발생했습니다.');
+            }
+        }
+    }
+
     getViewType() {
         return VIEW_TYPE_CHATBOT;
     }
@@ -100,6 +142,13 @@ export class ChatbotView extends ItemView {
             this.currentProvider = this.plugin.settings.aiProvider || 'openai';
             this.openaiService.setApiKey(this.plugin.settings.openaiApiKey);
             this.geminiService.setApiKey(this.plugin.settings.geminiApiKey);
+            
+            // Gemini 서비스에 MCP 서버 설정
+            if (this.currentProvider === 'gemini' && this.plugin.settings.mcpServers) {
+                this.geminiService.updateMCPServers(this.plugin.settings.mcpServers).catch(error => {
+                    console.error('Error updating MCP servers on open:', error);
+                });
+            }
         }
         
         // contentEl이 비어있다면 직접 사용
@@ -460,7 +509,10 @@ export class ChatbotView extends ItemView {
     }
 
     async onClose() {
-        // 정리 작업이 필요하면 여기에 추가
+        // MCP 서버 연결 정리
+        if (this.geminiService) {
+            await this.geminiService.cleanup();
+        }
     }
 
     // 대화 내역 초기화 메서드 (사용자 확인 포함)

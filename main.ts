@@ -72,6 +72,20 @@ export default class ChatbotPlugin extends Plugin {
     });
   }
 
+  // MCP 서버 변경 시 호출되는 메서드
+  onMCPServersChanged() {
+    console.log('MCP servers changed');
+    
+    // 현재 열린 모든 ChatbotView 인스턴스에 MCP 서버 변경 알림
+    const leaves = this.app.workspace.getLeavesOfType(VIEW_TYPE_CHATBOT);
+    leaves.forEach(leaf => {
+      const view = leaf.view as ChatbotView;
+      if (view && view.updateMCPServers) {
+        view.updateMCPServers();
+      }
+    });
+  }
+
   async onunload() {
     console.log('unloading plugin: chatbot-plugin')
   }

@@ -397,10 +397,11 @@
     left: 0;
     width: 100%;
     height: 100%;
-    z-index: 1000;
+    z-index: 10000; /* 더 높은 z-index로 설정 */
     display: flex;
     align-items: center;
     justify-content: center;
+    pointer-events: auto; /* 모든 포인터 이벤트 허용 */
 }
 
 .chatbot-modal {
@@ -420,6 +421,7 @@
     height: 100%;
     background: rgba(0, 0, 0, 0.5);
     cursor: pointer;
+    pointer-events: auto; /* 배경 클릭 허용 */
 }
 
 .chatbot-modal-content {
@@ -431,6 +433,8 @@
     max-width: 400px;
     width: 90%;
     box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+    pointer-events: auto; /* 모달 컨텐츠는 모든 포인터 이벤트 허용 */
+    z-index: 10001;
 }
 
 .chatbot-modal-header {
@@ -490,4 +494,56 @@
 
 .chatbot-modal-footer button:not(.mod-cta):hover {
     background: var(--background-modifier-border-hover);
+}
+
+/* MCP 서버 설정 스타일 */
+.mcp-server-item {
+    background: var(--background-modifier-border);
+    border-radius: 6px;
+    padding: 8px;
+    margin-bottom: 8px;
+    border: 1px solid var(--background-modifier-border-hover);
+}
+
+.mcp-server-item .setting-item {
+    margin: 0;
+    padding: 8px 0;
+    border: none;
+}
+
+.mcp-server-item .setting-item-info {
+    flex: 1;
+    min-width: 0;
+}
+
+.mcp-server-item .setting-item-name {
+    font-weight: 600;
+    color: var(--text-normal);
+    margin-bottom: 2px;
+}
+
+.mcp-server-item .setting-item-description {
+    font-size: 11px;
+    color: var(--text-muted);
+    word-break: break-all;
+}
+
+.mcp-server-item .setting-item-control {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+}
+
+.mcp-server-item .setting-item-control .mod-warning {
+    background: var(--background-modifier-error);
+    color: var(--text-on-accent);
+    padding: 4px 8px;
+    font-size: 11px;
+    border-radius: 4px;
+    border: none;
+    cursor: pointer;
+}
+
+.mcp-server-item .setting-item-control .mod-warning:hover {
+    background: var(--background-modifier-error-hover);
 }

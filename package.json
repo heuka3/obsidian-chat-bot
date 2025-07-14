@@ -19,6 +19,7 @@
 	"license": "MIT",
 	"dependencies": {
 		"@google/genai": "^1.9.0",
+		"@modelcontextprotocol/sdk": "^1.15.1",
 		"openai": "^4.20.0"
 	},
 	"devDependencies": {
