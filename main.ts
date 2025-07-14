@@ -31,15 +31,29 @@ export default class ChatbotPlugin extends Plugin {
   }
 
   // API 키 변경 시 호출되는 메서드
-  onApiKeyChanged(apiKey: string) {
-    console.log('API key changed in plugin:', apiKey ? 'Key set' : 'Key cleared');
+  onApiKeyChanged(apiKey: string, provider: 'openai' | 'gemini') {
+    console.log(`${provider} API key changed in plugin:`, apiKey ? 'Key set' : 'Key cleared');
     
     // 현재 열린 모든 ChatbotView 인스턴스에 API 키 업데이트
     const leaves = this.app.workspace.getLeavesOfType(VIEW_TYPE_CHATBOT);
     leaves.forEach(leaf => {
       const view = leaf.view as ChatbotView;
       if (view && view.updateApiKey) {
-        view.updateApiKey(apiKey);
+        view.updateApiKey(apiKey, provider);
+      }
+    });
+  }
+
+  // AI 제공자 변경 시 호출되는 메서드
+  onProviderChanged(provider: 'openai' | 'gemini') {
+    console.log('AI provider changed to:', provider);
+    
+    // 현재 열린 모든 ChatbotView 인스턴스에 제공자 변경 알림
+    const leaves = this.app.workspace.getLeavesOfType(VIEW_TYPE_CHATBOT);
+    leaves.forEach(leaf => {
+      const view = leaf.view as ChatbotView;
+      if (view && view.updateProvider) {
+        view.updateProvider(provider);
       }
     });
   }

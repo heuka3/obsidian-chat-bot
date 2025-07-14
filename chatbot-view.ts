@@ -1,10 +1,13 @@
 import { ItemView, WorkspaceLeaf, Notice, MarkdownRenderer } from "obsidian";
 import { OpenAIService, ChatMessage } from "./openai-service";
+import { GeminiService } from "./gemini-service";
 
 export const VIEW_TYPE_CHATBOT = "chatbot-view";
 
 export class ChatbotView extends ItemView {
     private openaiService: OpenAIService;
+    private geminiService: GeminiService;
+    private currentProvider: 'openai' | 'gemini' = 'openai';
     private isProcessing: boolean = false; // 중복 처리 방지 플래그
     private plugin: any; // 플러그인 인스턴스 참조
     private messageInput: HTMLTextAreaElement | null = null; // 입력 필드 참조
@@ -13,18 +16,47 @@ export class ChatbotView extends ItemView {
     constructor(leaf: WorkspaceLeaf, plugin?: any) {
         super(leaf);
         this.openaiService = new OpenAIService();
+        this.geminiService = new GeminiService();
         this.plugin = plugin;
         
-        // 플러그인이 있으면 초기 API 키 설정
+        // 플러그인이 있으면 초기 설정
         if (this.plugin && this.plugin.settings) {
+            this.currentProvider = this.plugin.settings.aiProvider || 'openai';
             this.openaiService.setApiKey(this.plugin.settings.openaiApiKey);
+            this.geminiService.setApiKey(this.plugin.settings.geminiApiKey);
         }
     }
 
     // API 키 업데이트 메서드
-    updateApiKey(apiKey: string) {
-        this.openaiService.setApiKey(apiKey);
-        console.log('API key updated in ChatbotView:', apiKey ? 'Key set' : 'Key cleared');
+    updateApiKey(apiKey: string, provider: 'openai' | 'gemini') {
+        if (provider === 'openai') {
+            this.openaiService.setApiKey(apiKey);
+        } else {
+            this.geminiService.setApiKey(apiKey);
+        }
+        console.log(`${provider} API key updated in ChatbotView:`, apiKey ? 'Key set' : 'Key cleared');
+    }
+
+    // AI 제공자 업데이트 메서드
+    updateProvider(provider: 'openai' | 'gemini') {
+        this.currentProvider = provider;
+        console.log('AI provider updated in ChatbotView:', provider);
+        
+        // 대화 기록을 현재 제공자의 서비스로 동기화
+        const currentService = this.getCurrentService();
+        const history = this.getCurrentService().getHistory();
+        if (history.length > 0) {
+            // 이전 제공자의 대화 기록을 새 제공자로 복사
+            currentService.clearHistory();
+            history.forEach(msg => {
+                currentService.addMessage(msg.role, msg.content);
+            });
+        }
+    }
+
+    // 현재 활성화된 AI 서비스 반환
+    private getCurrentService(): OpenAIService | GeminiService {
+        return this.currentProvider === 'openai' ? this.openaiService : this.geminiService;
     }
 
     getViewType() {
@@ -36,9 +68,11 @@ export class ChatbotView extends ItemView {
     }
 
     async onOpen() {
-        // 플러그인 설정에서 API 키 재설정 (뷰가 열릴 때마다)
+        // 플러그인 설정에서 제공자와 API 키 재설정 (뷰가 열릴 때마다)
         if (this.plugin && this.plugin.settings) {
+            this.currentProvider = this.plugin.settings.aiProvider || 'openai';
             this.openaiService.setApiKey(this.plugin.settings.openaiApiKey);
+            this.geminiService.setApiKey(this.plugin.settings.geminiApiKey);
         }
         
         // 디버깅을 위한 로그
@@ -216,14 +250,18 @@ export class ChatbotView extends ItemView {
         this.setUIEnabled(false); // UI 비활성화
 
         try {
+            // 현재 활성화된 AI 서비스 가져오기
+            const currentService = this.getCurrentService();
+            
             // 사용자 메시지 추가 (UI)
             this.addMessage("user", message, messagesContainer);
             // 대화 내역에 메시지 추가 (서비스)
-            this.openaiService.addMessage("user", message);
+            currentService.addMessage("user", message);
 
             // API 키가 설정되었는지 확인
-            if (!this.openaiService.isConfigured()) {
-                this.addMessage("assistant", "⚠️ OpenAI API 키가 설정되지 않았습니다. 상단의 키 아이콘을 클릭해서 API 키를 설정해주세요.", messagesContainer);
+            if (!currentService.isConfigured()) {
+                const providerName = this.currentProvider === 'openai' ? 'OpenAI' : 'Gemini';
+                this.addMessage("assistant", `⚠️ ${providerName} API 키가 설정되지 않았습니다. 설정에서 API 키를 설정해주세요.`, messagesContainer);
                 return;
             }
 
@@ -231,8 +269,12 @@ export class ChatbotView extends ItemView {
             const loadingMessage = this.addMessage("assistant", "🤔 생각중...", messagesContainer);
 
             try {
-                // OpenAI API 호출
-                const response = await this.openaiService.sendMessage();
+                // 현재 설정된 모델 가져오기
+                const model = this.plugin?.settings?.model || 
+                    (this.currentProvider === 'openai' ? 'gpt-4o' : 'gemini-1.5-pro');
+                
+                // AI API 호출
+                const response = await currentService.sendMessage(model);
 
                 // 로딩 메시지 제거
                 loadingMessage.remove();
@@ -240,7 +282,7 @@ export class ChatbotView extends ItemView {
                 // AI 응답 추가 (UI)
                 this.addMessage("assistant", response, messagesContainer);
                 // 대화 내역에 AI 응답 추가 (서비스)
-                this.openaiService.addMessage("assistant", response);
+                currentService.addMessage("assistant", response);
             } catch (error) {
                 // 로딩 메시지 제거
                 loadingMessage.remove();
@@ -258,6 +300,9 @@ export class ChatbotView extends ItemView {
         const messageEl = container.createEl("div", {
             cls: `chatbot-message chatbot-message-${sender}`
         });
+
+        // 원본 메시지 텍스트를 데이터 속성으로 저장
+        messageEl.setAttribute('data-original-message', message);
 
         const senderEl = messageEl.createEl("div", {
             text: sender === "user" ? "You" : "AI",
@@ -289,7 +334,9 @@ export class ChatbotView extends ItemView {
         });
         
         copyBtn.addEventListener("click", () => {
-            this.copyMessageToClipboard(message);
+            // 원본 메시지 텍스트 사용
+            const originalMessage = messageEl.getAttribute('data-original-message') || message;
+            this.copyMessageToClipboard(originalMessage);
         });
 
         // 삭제 버튼 (사용자 메시지에만 추가)
@@ -312,12 +359,12 @@ export class ChatbotView extends ItemView {
 
     private clearChat(messagesContainer: HTMLElement) {
         messagesContainer.empty();
-        this.openaiService.clearHistory(); // 대화 기록도 초기화
+        this.getCurrentService().clearHistory(); // 현재 활성화된 서비스의 대화 기록 초기화
     }
 
     // 대화 내역 저장 메서드
     private async saveChatHistory() {
-        const history = this.openaiService.getHistory();
+        const history = this.getCurrentService().getHistory();
         
         if (history.length === 0) {
             new Notice("저장할 대화 내역이 없습니다.");
@@ -396,7 +443,7 @@ export class ChatbotView extends ItemView {
 
     // 대화 내역 초기화 메서드 (사용자 확인 포함)
     private clearChatHistory(messagesContainer: HTMLElement) {
-        const history = this.openaiService.getHistory();
+        const history = this.getCurrentService().getHistory();
         
         if (history.length === 0) {
             new Notice("초기화할 대화 내역이 없습니다.");
@@ -462,13 +509,16 @@ export class ChatbotView extends ItemView {
 
     // 대화쌍을 삭제하는 메서드
     private deleteMessagePair(userMessageEl: HTMLElement, container: HTMLElement) {
-        // 사용자 메시지의 내용 가져오기
-        const userContent = userMessageEl.querySelector('.chatbot-message-content')?.textContent;
+        // 사용자 메시지의 원본 내용 가져오기
+        const userContent = userMessageEl.getAttribute('data-original-message');
         if (!userContent) return;
 
         // 현재 메시지 이후의 다음 메시지(AI 응답) 찾기
         const nextMessageEl = userMessageEl.nextElementSibling as HTMLElement;
         const isNextMessageAssistant = nextMessageEl?.classList.contains('chatbot-message-assistant');
+        
+        // AI 응답의 원본 내용 가져오기
+        const assistantContent = isNextMessageAssistant ? nextMessageEl.getAttribute('data-original-message') : null;
 
         // 확인 모달 표시
         const confirmModal = document.createElement('div');
@@ -484,7 +534,7 @@ export class ChatbotView extends ItemView {
                         <p>이 대화쌍을 삭제하시겠습니까?</p>
                         <div style="background: var(--background-modifier-border); padding: 8px; border-radius: 4px; margin: 8px 0; font-size: 12px; max-height: 100px; overflow-y: auto;">
                             <strong>사용자:</strong> ${userContent}
-                            ${isNextMessageAssistant ? `<br><br><strong>AI:</strong> ${nextMessageEl.querySelector('.chatbot-message-content')?.textContent || ''}` : ''}
+                            ${assistantContent ? `<br><br><strong>AI:</strong> ${assistantContent.substring(0, 100)}${assistantContent.length > 100 ? '...' : ''}` : ''}
                         </div>
                         <p style="color: var(--text-muted); font-size: 12px;">이 작업은 되돌릴 수 없습니다.</p>
                     </div>
@@ -504,7 +554,6 @@ export class ChatbotView extends ItemView {
 
         confirmBtn?.addEventListener('click', () => {
             // 대화 기록에서 해당 메시지들 제거
-            const assistantContent = isNextMessageAssistant ? nextMessageEl.querySelector('.chatbot-message-content')?.textContent || null : null;
             this.removeMessagePairFromHistory(userContent, assistantContent);
             
             // UI에서 메시지 제거
@@ -531,7 +580,8 @@ export class ChatbotView extends ItemView {
 
     // 대화 기록에서 특정 메시지 쌍 제거
     private removeMessagePairFromHistory(userMessage: string, assistantMessage: string | null) {
-        const history = this.openaiService.getHistory();
+        const currentService = this.getCurrentService();
+        const history = currentService.getHistory();
         const newHistory: ChatMessage[] = [];
         
         for (let i = 0; i < history.length; i++) {
@@ -554,9 +604,9 @@ export class ChatbotView extends ItemView {
         }
         
         // 새로운 히스토리로 교체
-        this.openaiService.clearHistory();
+        currentService.clearHistory();
         newHistory.forEach(msg => {
-            this.openaiService.addMessage(msg.role, msg.content);
+            currentService.addMessage(msg.role, msg.content);
         });
     }
 }

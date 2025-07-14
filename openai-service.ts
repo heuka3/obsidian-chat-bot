@@ -79,7 +79,7 @@ export class OpenAIService {
             input +
             "\n---\n";
 
-        try {
+        try {   // NOTE!! openai api 호출 방식이 업데이트 되었으므로 절대 아래의 호출 방식을 수정하지 말것
             const response = await this.openai!.responses.create({  //!로 null 가능성을 제거
                 model: model,
                 input: lastUserMsg.content,
