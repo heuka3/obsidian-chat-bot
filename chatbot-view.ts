@@ -25,12 +25,7 @@ export class ChatbotView extends ItemView {
             this.openaiService.setApiKey(this.plugin.settings.openaiApiKey);
             this.geminiService.setApiKey(this.plugin.settings.geminiApiKey);
             
-            // Gemini 서비스에 MCP 서버 설정
-            if (this.currentProvider === 'gemini' && this.plugin.settings.mcpServers) {
-                this.geminiService.updateMCPServers(this.plugin.settings.mcpServers).catch(error => {
-                    console.error('Error initializing MCP servers:', error);
-                });
-            }
+            // MCP 서버 설정은 onOpen에서만 수행
         }
     }
 

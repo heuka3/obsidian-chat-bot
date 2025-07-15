@@ -2,6 +2,7 @@ import { ChatMessage, MCPServer } from "./types";
 import { GoogleGenAI, Type, FunctionCallingConfigMode } from "@google/genai";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
+import { spawn } from 'child_process';
 
 interface GeminiTool {
     name: string;
@@ -64,6 +65,9 @@ export class GeminiService {
     private mcpTransports: Map<string, StdioClientTransport> = new Map();
     private availableTools: GeminiTool[] = [];
     private mcpServers: MCPServer[] = [];
+    
+    // 함수 이름 매핑: sanitized 이름 -> 원본 서버 이름과 도구 이름
+    private toolNameMapping: Map<string, { serverName: string, toolName: string }> = new Map();
 
     constructor(apiKey?: string) {
         if (apiKey) {
@@ -125,6 +129,7 @@ export class GeminiService {
         this.mcpClients.clear();
         this.mcpTransports.clear();
         this.availableTools = [];
+        this.toolNameMapping.clear(); // 매핑 정보도 초기화
     }
 
     // MCP 서버들에 연결
@@ -143,6 +148,8 @@ export class GeminiService {
     // 단일 MCP 서버에 연결
     private async connectToMCPServer(server: MCPServer) {
         try {
+            console.log(`🔗 MCP 서버 연결 시도: ${server.name}`);
+            
             const isJs = server.path.endsWith(".js");
             const isPy = server.path.endsWith(".py");
             
@@ -150,51 +157,290 @@ export class GeminiService {
                 throw new Error(`Server script must be a .js or .py file: ${server.path}`);
             }
 
-            const command = isPy ? "python3" : process.execPath;
+            let command: string;
+            let args: string[];
+            let cwd: string | undefined;
+
+            if (isPy) {
+                // Python 환경 감지
+                const pythonInfo = await this.findBestPythonCommand(server.path);
+                
+                try {
+                    // uv 환경인지 확인
+                    const uvInfo = JSON.parse(pythonInfo);
+                    if (uvInfo.command && uvInfo.args) {
+                        command = uvInfo.command;
+                        args = [...uvInfo.args, server.path];
+                        cwd = uvInfo.cwd;
+                    } else {
+                        throw new Error('Not uv format');
+                    }
+                } catch {
+                    // 일반 Python 경로
+                    command = pythonInfo;
+                    args = [server.path];
+                }
+            } else {
+                command = process.execPath;
+                args = [server.path];
+            }
+            
+            // 파일 존재 여부 확인
+            const fs = require('fs');
+            if (!fs.existsSync(server.path)) {
+                throw new Error(`Server script file not found: ${server.path}`);
+            }
+            
+            // Python 스크립트 실행 테스트 (비활성화됨)
+            if (isPy) {
+                await this.testPythonScriptWithEnv(command, args, cwd);
+            }
+            
             const transport = new StdioClientTransport({
                 command,
-                args: [server.path],
+                args,
+                ...(cwd && { cwd }),
+                env: {
+                    ...process.env,
+                    PATH: `/usr/local/bin:/opt/homebrew/bin:${process.env.PATH}`,
+                    PYTHONPATH: process.env.PYTHONPATH || '',
+                }
             });
 
             const client = new Client({ name: "obsidian-chatbot", version: "1.0.0" });
+            
             await client.connect(transport);
-
+            
             const toolsResult = await client.listTools();
             
             // MCP 도구를 Gemini Function Calling 형태로 변환
-            const tools = toolsResult.tools.map((tool) => ({
-                name: `${server.name}_${tool.name}`,
-                description: tool.description || `Tool from ${server.name}`,
-                parameters: tool.inputSchema,
-            }));
+            const tools = toolsResult.tools.map((tool) => {
+                const originalName = `${server.name}_${tool.name}`;
+                const validName = this.sanitizeFunctionName(originalName);
+                
+                // 매핑 정보 저장
+                this.toolNameMapping.set(validName, {
+                    serverName: server.name,
+                    toolName: tool.name
+                });
+                
+                console.log(`🔧 도구 이름 변환: "${originalName}" -> "${validName}"`);
+                console.log(`📝 매핑 저장: "${validName}" -> 서버: "${server.name}", 도구: "${tool.name}"`);
+                
+                return {
+                    name: validName,
+                    description: tool.description || `Tool from ${server.name}`,
+                    parameters: tool.inputSchema,
+                };
+            });
 
             this.availableTools.push(...tools);
             this.mcpClients.set(server.name, client);
             this.mcpTransports.set(server.name, transport);
 
-            console.log(`Connected to MCP server ${server.name} with ${tools.length} tools`);
-        } catch (error) {
-            console.error(`Failed to connect to MCP server ${server.name}:`, error);
-            throw error;
+            console.log(`✅ MCP 서버 ${server.name} 연결 완료 (${tools.length}개 도구)`);
+        } catch (e) {
+            console.error(`❌ MCP 서버 ${server.name} 연결 실패:`, e);
+            throw e;
         }
+    }
+
+    // 함수 이름을 Gemini 규칙에 맞게 정리
+    private sanitizeFunctionName(name: string): string {
+        // Gemini 함수 이름 규칙:
+        // - 문자 또는 밑줄로 시작
+        // - 영숫자, 밑줄, 점, 대시만 허용
+        // - 최대 64자
+        
+        let sanitized = name
+            .replace(/[^a-zA-Z0-9_.-]/g, '_')  // 허용되지 않는 문자를 밑줄로 변경
+            .replace(/^[^a-zA-Z_]/, '_')       // 첫 문자가 문자나 밑줄이 아니면 밑줄 추가
+            .substring(0, 64);                // 최대 64자로 제한
+        
+        return sanitized;
+    }
+
+    // 최적의 Python 명령어 찾기
+    private async findBestPythonCommand(scriptPath: string): Promise<string> {
+        const path = require('path');
+        const fs = require('fs');
+        const scriptDir = path.dirname(scriptPath);
+        
+        // uv 프로젝트 확인 (pyproject.toml + uv.lock)
+        const uvCandidates = [
+            scriptDir,
+            path.dirname(scriptDir),
+            path.dirname(path.dirname(scriptDir)),
+        ];
+
+        for (const dir of uvCandidates) {
+            const pyprojectPath = path.join(dir, 'pyproject.toml');
+            const uvLockPath = path.join(dir, 'uv.lock');
+            
+            if (fs.existsSync(pyprojectPath) && fs.existsSync(uvLockPath)) {
+                console.log(`📍 uv 프로젝트 발견: ${dir}`);
+                
+                // uv 명령어 전체 경로 찾기
+                const uvPath = this.findUvPath();
+                if (!uvPath) {
+                    break;
+                }
+                
+                console.log(`✅ uv 환경 사용: ${uvPath} run python`);
+                
+                // uv run python을 사용할 때는 작업 디렉토리 정보를 함께 반환
+                return JSON.stringify({
+                    command: uvPath,
+                    args: ['run', 'python'],
+                    cwd: dir
+                });
+            }
+        }
+
+        const isWindows = process.platform === "win32";
+        const pythonExe = isWindows ? "python.exe" : "python";
+        const scriptsDir = isWindows ? "Scripts" : "bin";
+        
+        // 가상환경 후보 경로들
+        const venvCandidates = [
+            path.join(scriptDir, '.venv', scriptsDir, pythonExe),
+            path.join(scriptDir, 'venv', scriptsDir, pythonExe),
+            path.join(scriptDir, 'env', scriptsDir, pythonExe),
+            path.join(scriptDir, '..', '.venv', scriptsDir, pythonExe),
+            path.join(scriptDir, '..', 'venv', scriptsDir, pythonExe),
+            path.join(scriptDir, '..', 'env', scriptsDir, pythonExe),
+            path.join(scriptDir, '..', '..', '.venv', scriptsDir, pythonExe),
+            path.join(scriptDir, '..', '..', 'venv', scriptsDir, pythonExe),
+            path.join(scriptDir, '..', '..', 'env', scriptsDir, pythonExe),
+        ];
+
+        // 가상환경 Python 인터프리터 찾기
+        for (const candidate of venvCandidates) {
+            if (fs.existsSync(candidate)) {
+                console.log(`📍 가상환경 발견: ${candidate}`);
+                try {
+                    const result = await this.testPythonCommand(candidate);
+                    if (result) {
+                        console.log(`✅ 가상환경 Python 사용`);
+                        return candidate;
+                    }
+                } catch (error) {
+                    // 조용히 다음 후보로 넘어감
+                }
+            }
+        }
+
+        // 시스템 Python 사용
+        const systemCandidates = [
+            process.env.CONDA_PREFIX ? `${process.env.CONDA_PREFIX}/bin/python` : null,
+            isWindows ? "python" : "python3",
+            "python",
+        ].filter(Boolean) as string[];
+
+        for (const candidate of systemCandidates) {
+            try {
+                const result = await this.testPythonCommand(candidate);
+                if (result) {
+                    console.log(`✅ 시스템 Python 사용: ${candidate}`);
+                    return candidate;
+                }
+            } catch (error) {
+                // 조용히 다음 후보로 넘어감
+            }
+        }
+
+        // 기본값 반환
+        return isWindows ? "python" : "python3";
+    }
+
+    // uv 명령어 경로 찾기
+    private findUvPath(): string | null {
+        const fs = require('fs');
+        const candidates = [
+            '/usr/local/bin/uv',
+            '/opt/homebrew/bin/uv',
+            '/Users/heuka/.local/bin/uv',
+            '/home/heuka/.local/bin/uv',
+            '/usr/bin/uv',
+        ];
+
+        for (const candidate of candidates) {
+            if (fs.existsSync(candidate)) {
+                return candidate;
+            }
+        }
+
+        return null;
+    }
+
+    // uv 환경 패키지 정보 로깅
+    private async logUvPackages(projectDir: string): Promise<void> {
+        // 패키지 정보 로깅 비활성화 (필요 시 활성화)
+        return Promise.resolve();
+    }
+
+    // 가상환경 패키지 정보 로깅
+    private async logVenvPackages(pythonPath: string): Promise<void> {
+        // 패키지 정보 로깅 비활성화 (필요 시 활성화)
+        return Promise.resolve();
+    }
+
+    // Python 명령어 테스트
+    private async testPythonCommand(command: string): Promise<boolean> {
+        return new Promise((resolve) => {
+            const testProcess = spawn(command, ['-c', 'import sys'], {
+                env: process.env,
+            });
+
+            testProcess.on('error', () => resolve(false));
+            testProcess.on('exit', (code) => resolve(code === 0));
+
+            setTimeout(() => {
+                testProcess.kill();
+                resolve(false);
+            }, 2000);
+        });
+    }
+
+    // Python 스크립트 실행 테스트 (환경 정보 포함)
+    private async testPythonScriptWithEnv(command: string, args: string[], cwd?: string): Promise<void> {
+        // 테스트 로깅 비활성화 (필요 시 활성화)
+        return Promise.resolve();
+    }
+
+    // Python 스크립트 실행 테스트
+    private async testPythonScript(command: string, scriptPath: string): Promise<void> {
+        // 테스트 로깅 비활성화 (필요 시 활성화)
+        return Promise.resolve();
     }
 
     // MCP 도구 호출
     private async callMCPTool(toolName: string, args: any): Promise<any> {
-        // 도구 이름에서 서버 이름 추출
-        const [serverName, ...toolNameParts] = toolName.split('_');
-        const actualToolName = toolNameParts.join('_');
+        console.log(`🔧 MCP 도구 호출 요청: "${toolName}"`);
+        
+        // 매핑된 정보 조회
+        const mappingInfo = this.toolNameMapping.get(toolName);
+        if (!mappingInfo) {
+            console.error(`❌ 도구 매핑 정보를 찾을 수 없음: "${toolName}"`);
+            throw new Error(`Tool mapping not found for ${toolName}`);
+        }
+        
+        const { serverName, toolName: actualToolName } = mappingInfo;
+        console.log(`📝 매핑 정보: 서버="${serverName}", 도구="${actualToolName}"`);
         
         const client = this.mcpClients.get(serverName);
         if (!client) {
+            console.error(`❌ MCP 서버를 찾을 수 없음: "${serverName}"`);
             throw new Error(`MCP server ${serverName} not found`);
         }
 
+        console.log(`🚀 MCP 도구 실행: 서버="${serverName}", 도구="${actualToolName}"`);
         const result = await client.callTool({
             name: actualToolName,
             arguments: args,
         });
 
+        console.log(`✅ MCP 도구 실행 완료: "${actualToolName}"`);
         return result.content;
     }
 
@@ -245,6 +491,8 @@ export class GeminiService {
             const functionDeclarations = this.availableTools.map(tool => {
                 const convertedParameters = convertJsonSchemaToGeminiType(tool.parameters);
                 
+                console.log(`🔧 Gemini 함수 등록: "${tool.name}"`);
+                
                 return {
                     name: tool.name,
                     description: tool.description || "",
@@ -258,7 +506,7 @@ export class GeminiService {
 
             // 반복적으로 함수 호출 처리 (compositional function calling)
             while (true) {
-                const result = await this.genAI!.models.generateContent({
+                const result: any = await this.genAI!.models.generateContent({
                     model: model,
                     contents,
                     config: { 
@@ -276,7 +524,7 @@ export class GeminiService {
 
                 // Function Call이 있는지 확인
                 if (result.functionCalls && result.functionCalls.length > 0) {
-                    const functionCall = result.functionCalls[0];
+                    const functionCall: any = result.functionCalls[0];
                     const toolName = functionCall.name;
                     const toolArgs = functionCall.args;
 
