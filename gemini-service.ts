@@ -150,61 +150,27 @@ export class GeminiService {
         try {
             console.log(`🔗 MCP 서버 연결 시도: ${server.name}`);
             
-            const isJs = server.path.endsWith(".js");
-            const isPy = server.path.endsWith(".py");
+            // 서버 파일의 디렉토리 추출
+            const path = require('path');
+            const serverDir = path.dirname(server.path);
+            const serverFile = path.basename(server.path);
             
-            if (!isJs && !isPy) {
-                throw new Error(`Server script must be a .js or .py file: ${server.path}`);
-            }
-
-            let command: string;
-            let args: string[];
-            let cwd: string | undefined;
-
-            if (isPy) {
-                // Python 환경 감지
-                const pythonInfo = await this.findBestPythonCommand(server.path);
-                
-                try {
-                    // uv 환경인지 확인
-                    const uvInfo = JSON.parse(pythonInfo);
-                    if (uvInfo.command && uvInfo.args) {
-                        command = uvInfo.command;
-                        args = [...uvInfo.args, server.path];
-                        cwd = uvInfo.cwd;
-                    } else {
-                        throw new Error('Not uv format');
-                    }
-                } catch {
-                    // 일반 Python 경로
-                    command = pythonInfo;
-                    args = [server.path];
-                }
-            } else {
-                command = process.execPath;
-                args = [server.path];
-            }
+            // 명령어 파싱
+            const commandParts = server.command.split(' ');
+            const command = commandParts[0];
+            const args = [...commandParts.slice(1), serverFile];
             
-            // 파일 존재 여부 확인
-            const fs = require('fs');
-            if (!fs.existsSync(server.path)) {
-                throw new Error(`Server script file not found: ${server.path}`);
-            }
-            
-            // Python 스크립트 실행 테스트 (비활성화됨)
-            if (isPy) {
-                await this.testPythonScriptWithEnv(command, args, cwd);
-            }
+            console.log(`💻 실행 명령어: ${command} ${args.join(' ')}`);
+            console.log(`📁 작업 디렉토리: ${serverDir}`);
             
             const transport = new StdioClientTransport({
                 command,
                 args,
-                ...(cwd && { cwd }),
+                cwd: serverDir, // 서버 스크립트의 디렉토리에서 실행
                 env: {
                     ...process.env,
-                    PATH: `/usr/local/bin:/opt/homebrew/bin:${process.env.PATH}`,
-                    PYTHONPATH: process.env.PYTHONPATH || '',
-                }
+                    PATH: `/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin:${process.env.PATH || ''}`
+                } as Record<string, string>
             });
 
             const client = new Client({ name: "obsidian-chatbot", version: "1.0.0" });
@@ -225,7 +191,6 @@ export class GeminiService {
                 });
                 
                 console.log(`🔧 도구 이름 변환: "${originalName}" -> "${validName}"`);
-                console.log(`📝 매핑 저장: "${validName}" -> 서버: "${server.name}", 도구: "${tool.name}"`);
                 
                 return {
                     name: validName,
@@ -240,8 +205,14 @@ export class GeminiService {
 
             console.log(`✅ MCP 서버 ${server.name} 연결 완료 (${tools.length}개 도구)`);
         } catch (e) {
-            console.error(`❌ MCP 서버 ${server.name} 연결 실패:`, e);
-            throw e;
+            const error = e as Error;
+            if (error.message.includes('ENOENT')) {
+                console.error(`❌ MCP 서버 ${server.name} 연결 실패: 명령어 '${server.command.split(' ')[0]}'를 찾을 수 없습니다.`);
+                console.error(`💡 해결 방법: 올바른 명령어 경로를 확인하거나 전체 경로를 사용하세요.`);
+            } else {
+                console.error(`❌ MCP 서버 ${server.name} 연결 실패:`, error);
+            }
+            throw error;
         }
     }
 
@@ -258,160 +229,6 @@ export class GeminiService {
             .substring(0, 64);                // 최대 64자로 제한
         
         return sanitized;
-    }
-
-    // 최적의 Python 명령어 찾기
-    private async findBestPythonCommand(scriptPath: string): Promise<string> {
-        const path = require('path');
-        const fs = require('fs');
-        const scriptDir = path.dirname(scriptPath);
-        
-        // uv 프로젝트 확인 (pyproject.toml + uv.lock)
-        const uvCandidates = [
-            scriptDir,
-            path.dirname(scriptDir),
-            path.dirname(path.dirname(scriptDir)),
-        ];
-
-        for (const dir of uvCandidates) {
-            const pyprojectPath = path.join(dir, 'pyproject.toml');
-            const uvLockPath = path.join(dir, 'uv.lock');
-            
-            if (fs.existsSync(pyprojectPath) && fs.existsSync(uvLockPath)) {
-                console.log(`📍 uv 프로젝트 발견: ${dir}`);
-                
-                // uv 명령어 전체 경로 찾기
-                const uvPath = this.findUvPath();
-                if (!uvPath) {
-                    break;
-                }
-                
-                console.log(`✅ uv 환경 사용: ${uvPath} run python`);
-                
-                // uv run python을 사용할 때는 작업 디렉토리 정보를 함께 반환
-                return JSON.stringify({
-                    command: uvPath,
-                    args: ['run', 'python'],
-                    cwd: dir
-                });
-            }
-        }
-
-        const isWindows = process.platform === "win32";
-        const pythonExe = isWindows ? "python.exe" : "python";
-        const scriptsDir = isWindows ? "Scripts" : "bin";
-        
-        // 가상환경 후보 경로들
-        const venvCandidates = [
-            path.join(scriptDir, '.venv', scriptsDir, pythonExe),
-            path.join(scriptDir, 'venv', scriptsDir, pythonExe),
-            path.join(scriptDir, 'env', scriptsDir, pythonExe),
-            path.join(scriptDir, '..', '.venv', scriptsDir, pythonExe),
-            path.join(scriptDir, '..', 'venv', scriptsDir, pythonExe),
-            path.join(scriptDir, '..', 'env', scriptsDir, pythonExe),
-            path.join(scriptDir, '..', '..', '.venv', scriptsDir, pythonExe),
-            path.join(scriptDir, '..', '..', 'venv', scriptsDir, pythonExe),
-            path.join(scriptDir, '..', '..', 'env', scriptsDir, pythonExe),
-        ];
-
-        // 가상환경 Python 인터프리터 찾기
-        for (const candidate of venvCandidates) {
-            if (fs.existsSync(candidate)) {
-                console.log(`📍 가상환경 발견: ${candidate}`);
-                try {
-                    const result = await this.testPythonCommand(candidate);
-                    if (result) {
-                        console.log(`✅ 가상환경 Python 사용`);
-                        return candidate;
-                    }
-                } catch (error) {
-                    // 조용히 다음 후보로 넘어감
-                }
-            }
-        }
-
-        // 시스템 Python 사용
-        const systemCandidates = [
-            process.env.CONDA_PREFIX ? `${process.env.CONDA_PREFIX}/bin/python` : null,
-            isWindows ? "python" : "python3",
-            "python",
-        ].filter(Boolean) as string[];
-
-        for (const candidate of systemCandidates) {
-            try {
-                const result = await this.testPythonCommand(candidate);
-                if (result) {
-                    console.log(`✅ 시스템 Python 사용: ${candidate}`);
-                    return candidate;
-                }
-            } catch (error) {
-                // 조용히 다음 후보로 넘어감
-            }
-        }
-
-        // 기본값 반환
-        return isWindows ? "python" : "python3";
-    }
-
-    // uv 명령어 경로 찾기
-    private findUvPath(): string | null {
-        const fs = require('fs');
-        const candidates = [
-            '/usr/local/bin/uv',
-            '/opt/homebrew/bin/uv',
-            '/Users/heuka/.local/bin/uv',
-            '/home/heuka/.local/bin/uv',
-            '/usr/bin/uv',
-        ];
-
-        for (const candidate of candidates) {
-            if (fs.existsSync(candidate)) {
-                return candidate;
-            }
-        }
-
-        return null;
-    }
-
-    // uv 환경 패키지 정보 로깅
-    private async logUvPackages(projectDir: string): Promise<void> {
-        // 패키지 정보 로깅 비활성화 (필요 시 활성화)
-        return Promise.resolve();
-    }
-
-    // 가상환경 패키지 정보 로깅
-    private async logVenvPackages(pythonPath: string): Promise<void> {
-        // 패키지 정보 로깅 비활성화 (필요 시 활성화)
-        return Promise.resolve();
-    }
-
-    // Python 명령어 테스트
-    private async testPythonCommand(command: string): Promise<boolean> {
-        return new Promise((resolve) => {
-            const testProcess = spawn(command, ['-c', 'import sys'], {
-                env: process.env,
-            });
-
-            testProcess.on('error', () => resolve(false));
-            testProcess.on('exit', (code) => resolve(code === 0));
-
-            setTimeout(() => {
-                testProcess.kill();
-                resolve(false);
-            }, 2000);
-        });
-    }
-
-    // Python 스크립트 실행 테스트 (환경 정보 포함)
-    private async testPythonScriptWithEnv(command: string, args: string[], cwd?: string): Promise<void> {
-        // 테스트 로깅 비활성화 (필요 시 활성화)
-        return Promise.resolve();
-    }
-
-    // Python 스크립트 실행 테스트
-    private async testPythonScript(command: string, scriptPath: string): Promise<void> {
-        // 테스트 로깅 비활성화 (필요 시 활성화)
-        return Promise.resolve();
     }
 
     // MCP 도구 호출

@@ -150,7 +150,7 @@ export class ChatbotSettingTab extends PluginSettingTab {
                     const serverContainer = containerEl.createEl("div", { cls: "mcp-server-item" });
                     new Setting(serverContainer)
                         .setName(server.name)
-                        .setDesc(`경로: ${server.path}`)
+                        .setDesc(`경로: ${server.path}\n명령어: ${server.command || '미설정'}`)
                         .addToggle(toggle => {
                             toggle
                                 .setValue(server.enabled)
@@ -192,9 +192,21 @@ export class ChatbotSettingTab extends PluginSettingTab {
                         </div>
                         <div style="margin-bottom: 16px;">
                             <label style="display: block; margin-bottom: 4px; font-weight: 500;">서버 경로:</label>
-                            <input type="text" id="mcp-server-path" placeholder="예: /path/to/server.js" style="width: 100%; padding: 8px; border: 1px solid var(--background-modifier-border); border-radius: 4px; background: var(--background-primary); color: var(--text-normal);">
+                            <input type="text" id="mcp-server-path" placeholder="예: /path/to/server.py" style="width: 100%; padding: 8px; border: 1px solid var(--background-modifier-border); border-radius: 4px; background: var(--background-primary); color: var(--text-normal);">
                         </div>
-                        <p style="color: var(--text-muted); font-size: 12px; margin: 0;">로컬 MCP 서버의 .js 또는 .py 파일 경로를 입력하세요.</p>
+                        <div style="margin-bottom: 16px;">
+                            <label style="display: block; margin-bottom: 4px; font-weight: 500;">실행 명령어:</label>
+                            <input type="text" id="mcp-server-command" placeholder="예: python, node, uv run python server.py" style="width: 100%; padding: 8px; border: 1px solid var(--background-modifier-border); border-radius: 4px; background: var(--background-primary); color: var(--text-normal);">
+                        </div>
+                        <p style="color: var(--text-muted); font-size: 12px; margin: 0 0 16px 0;">
+                            MCP 서버를 실행하기 위한 명령어를 입력하세요. 서버는 해당 스크립트의 디렉토리에서 실행됩니다.<br>
+                            <strong>예시:</strong><br>
+                            • Python: <code>python</code><br>
+                            • Node.js: <code>node</code><br>
+                            • uv 환경: <code>uv run python</code><br>
+                            • conda 환경: <code>conda run -n myenv python</code><br>
+                            • 가상환경: <code>./venv/bin/python</code> 또는 <code>source venv/bin/activate && python</code>
+                        </p>
                     </div>
                     <div class="chatbot-modal-footer">
                         <button type="button" class="mod-cta" id="add-mcp-server">추가</button>
@@ -207,6 +219,7 @@ export class ChatbotSettingTab extends PluginSettingTab {
         document.body.appendChild(modal);
         const nameInput = modal.querySelector('#mcp-server-name') as HTMLInputElement;
         const pathInput = modal.querySelector('#mcp-server-path') as HTMLInputElement;
+        const commandInput = modal.querySelector('#mcp-server-command') as HTMLInputElement;
         const addBtn = modal.querySelector('#add-mcp-server');
         const cancelBtn = modal.querySelector('#cancel-mcp-server');
         
@@ -274,8 +287,9 @@ export class ChatbotSettingTab extends PluginSettingTab {
             e.preventDefault();
             const name = nameInput.value.trim();
             const path = pathInput.value.trim();
-            if (!name || !path) {
-                new Notice("서버 이름과 경로를 모두 입력해주세요.");
+            const command = commandInput.value.trim();
+            if (!name || !path || !command) {
+                new Notice("서버 이름, 경로, 실행 명령어를 모두 입력해주세요.");
                 return;
             }
             if (!path.endsWith('.js') && !path.endsWith('.py')) {
@@ -287,7 +301,7 @@ export class ChatbotSettingTab extends PluginSettingTab {
                 new Notice("같은 이름의 서버가 이미 존재합니다.");
                 return;
             }
-            this.plugin.settings.mcpServers.push({ name, path, enabled: true });
+            this.plugin.settings.mcpServers.push({ name, path, command, enabled: true });
             await this.plugin.saveSettings();
             new Notice(`MCP 서버 "${name}"이 추가되었습니다.`);
             clearInterval(focusInterval);

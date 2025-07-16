@@ -1,6 +1,7 @@
 export interface MCPServer {
     name: string;
     path: string;
+    command: string;
     enabled: boolean;
 }
 
