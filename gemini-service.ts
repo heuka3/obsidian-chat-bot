@@ -65,13 +65,20 @@ export class GeminiService {
     private mcpTransports: Map<string, StdioClientTransport> = new Map();
     private availableTools: GeminiTool[] = [];
     private mcpServers: MCPServer[] = [];
+    private app: any = null; // Obsidian App 인스턴스
     
     // 함수 이름 매핑: sanitized 이름 -> 원본 서버 이름과 도구 이름
     private toolNameMapping: Map<string, { serverName: string, toolName: string }> = new Map();
+    
+    // 도구 이름 매핑: 원본 도구 이름 -> sanitized 이름 (역방향 매핑)
+    private originalToSanitizedMapping: Map<string, string> = new Map();
 
-    constructor(apiKey?: string) {
+    constructor(apiKey?: string, app?: any) {
         if (apiKey) {
             this.setApiKey(apiKey);
+        }
+        if (app) {
+            this.app = app;
         }
     }
 
@@ -130,6 +137,7 @@ export class GeminiService {
         this.mcpTransports.clear();
         this.availableTools = [];
         this.toolNameMapping.clear(); // 매핑 정보도 초기화
+        this.originalToSanitizedMapping.clear(); // 역방향 매핑도 초기화
     }
 
     // MCP 서버들에 연결
@@ -152,25 +160,62 @@ export class GeminiService {
             
             // 서버 파일의 디렉토리 추출
             const path = require('path');
-            const serverDir = path.dirname(server.path);
-            const serverFile = path.basename(server.path);
+            const fs = require('fs');
             
-            // 명령어 파싱
+            // 명령어 파싱 (먼저 수행)
             const commandParts = server.command.split(' ');
             const command = commandParts[0];
-            const args = [...commandParts.slice(1), serverFile];
+            
+            let serverDir = path.dirname(server.path);
+            const serverFile = path.basename(server.path);
+            
+            // Node.js 서버인 경우 package.json이 있는 디렉토리 찾기
+            const isNodeServer = command === 'node' || command.endsWith('node');
+            if (isNodeServer) {
+                let currentDir = serverDir;
+                while (currentDir !== path.dirname(currentDir)) {
+                    const packageJsonPath = path.join(currentDir, 'package.json');
+                    if (fs.existsSync(packageJsonPath)) {
+                        console.log(`📦 package.json 발견: ${packageJsonPath}`);
+                        serverDir = currentDir;
+                        break;
+                    }
+                    currentDir = path.dirname(currentDir);
+                }
+            }
+            
+            // 서버 파일의 상대 경로 계산
+            const relativeServerPath = path.relative(serverDir, server.path);
+            
+            let args = [...commandParts.slice(1), relativeServerPath];
+            
+            // 추가 인자가 있으면 파싱해서 서버 파일 뒤에 추가
+            if (server.args) {
+                const additionalArgs = server.args.split(' ').filter(arg => arg.trim() !== '');
+                args = [...commandParts.slice(1), relativeServerPath, ...additionalArgs];
+            }
             
             console.log(`💻 실행 명령어: ${command} ${args.join(' ')}`);
             console.log(`📁 작업 디렉토리: ${serverDir}`);
+            
+            // Node.js 기반 서버인 경우 NODE_PATH 설정
+            const env = {
+                ...process.env,
+                PATH: `/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin:${process.env.PATH || ''}`
+            } as Record<string, string>;
+            
+            if (isNodeServer) {
+                // Node.js 서버의 경우 node_modules 경로 설정
+                const nodeModulesPath = `${serverDir}/node_modules`;
+                env.NODE_PATH = nodeModulesPath;
+                console.log(`🟢 Node.js 서버 감지 - NODE_PATH 설정: ${nodeModulesPath}`);
+            }
             
             const transport = new StdioClientTransport({
                 command,
                 args,
                 cwd: serverDir, // 서버 스크립트의 디렉토리에서 실행
-                env: {
-                    ...process.env,
-                    PATH: `/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin:${process.env.PATH || ''}`
-                } as Record<string, string>
+                env
             });
 
             const client = new Client({ name: "obsidian-chatbot", version: "1.0.0" });
@@ -184,13 +229,14 @@ export class GeminiService {
                 const originalName = `${server.name}_${tool.name}`;
                 const validName = this.sanitizeFunctionName(originalName);
                 
-                // 매핑 정보 저장
+                // 양방향 매핑 정보 저장
                 this.toolNameMapping.set(validName, {
                     serverName: server.name,
                     toolName: tool.name
                 });
+                this.originalToSanitizedMapping.set(tool.name, validName);
                 
-                console.log(`🔧 도구 이름 변환: "${originalName}" -> "${validName}"`);
+                console.log(`🔧 도구 이름 변환: "${tool.name}" -> "${validName}" (서버: ${server.name})`);
                 
                 return {
                     name: validName,
@@ -229,6 +275,82 @@ export class GeminiService {
             .substring(0, 64);                // 최대 64자로 제한
         
         return sanitized;
+    }
+
+    // Obsidian vault 이름 추출
+    private getVaultName(): string {
+        try {
+            // Obsidian App API 사용 (가장 정확한 방법)
+            if (this.app && this.app.vault) {
+                const vaultName = this.app.vault.getName();
+                if (vaultName && vaultName !== '') {
+                    return vaultName;
+                }
+                
+                // 대안: vault adapter의 basePath 사용
+                const basePath = (this.app.vault.adapter as any)?.basePath;
+                if (basePath) {
+                    const path = require('path');
+                    return path.basename(basePath);
+                }
+            }
+            
+            // 폴백: 기본값 반환
+            return 'unknown-vault';
+        } catch (error) {
+            console.error('Error getting vault name:', error);
+            return 'unknown-vault';
+        }
+    }
+
+    // 시스템 컨텍스트 생성
+    private buildSystemContext(vaultName: string): string {
+        const availableToolsList = this.availableTools.length > 0 
+            ? this.availableTools.map(tool => {
+                const params = tool.parameters && tool.parameters.properties 
+                    ? Object.keys(tool.parameters.properties).join(', ')
+                    : '매개변수 없음';
+                const required = tool.parameters && tool.parameters.required 
+                    ? ` (필수: ${tool.parameters.required.join(', ')})`
+                    : '';
+                
+                // 원본 도구 이름 찾기
+                const mappingInfo = this.toolNameMapping.get(tool.name);
+                const originalToolName = mappingInfo ? mappingInfo.toolName : 'unknown';
+                const serverName = mappingInfo ? mappingInfo.serverName : 'unknown';
+                
+                return `- ${tool.name} [원본: ${originalToolName}@${serverName}]: ${tool.description}\n  매개변수: ${params}${required}`;
+            }).join('\n')
+            : '사용 가능한 도구가 없습니다.';
+
+        return `=== SYSTEM CONTEXT ===
+당신은 Obsidian의 AI Chatbot 플러그인에서 작동하는 AI 어시스턴트입니다.
+
+**현재 환경:**
+- Obsidian Vault: "${vaultName}"
+- 플러그인: AI Chatbot
+- 위치: Obsidian 내부 플러그인 환경
+
+**사용 가능한 도구 (MCP 서버를 통한 Function Calling):**
+${availableToolsList}
+
+**중요한 지침:**
+1. 당신은 Obsidian vault "${vaultName}" 내에서 작동하고 있습니다.
+2. 필요시 위의 도구들을 사용하여 사용자의 요청을 수행할 수 있습니다.
+3. 파일 경로나 vault 관련 작업을 수행할 때는 현재 vault 이름을 고려하세요.
+4. 도구를 사용할 때는 적절한 매개변수를 전달하여 정확한 결과를 얻도록 하세요.
+5. 사용자가 vault나 노트에 대한 질문을 할 때는 현재 "${vaultName}" vault 컨텍스트에서 답변하세요.
+
+**⚠️ Function Calling 필수 규칙:**
+- 도구를 호출할 때는 반드시 해당 도구의 정확한 스키마에 정의된 매개변수만 사용하세요.
+- 스키마에 없는 매개변수를 임의로 추가하거나 생성하지 마세요.
+- 각 도구의 description을 정확히 읽고 용도에 맞게만 사용하세요.
+- 매개변수 타입(string, number, boolean 등)을 정확히 지켜주세요.
+- 필수 매개변수(required)는 반드시 포함하고, 선택적 매개변수만 생략 가능합니다.
+- 확실하지 않은 매개변수는 사용하지 말고, 사용자에게 명확히 요청하세요.
+- 도구 이름에 하이픈(-)이 언더스코어(_)로 변경되어 표시되지만, 실제 도구는 원본 이름으로 실행됩니다.
+
+=======================`;
     }
 
     // MCP 도구 호출
@@ -282,6 +404,12 @@ export class GeminiService {
         // instruction용 대화 맥락
         const contextForInstruction = latest_context.slice(0, lastUserMsgRealIdx);
         
+        // Obsidian vault 이름 추출
+        const vaultName = this.getVaultName();
+        
+        // 시스템 컨텍스트 생성
+        const systemContext = this.buildSystemContext(vaultName);
+        
         // 대화 내용 구성
         let contents = [];
         
@@ -293,13 +421,13 @@ export class GeminiService {
             contents.push({
                 role: "user",
                 parts: [{
-                    text: `아래 대화 내용을 참고하여 대화 맥락을 파악하고 User의 메시지에 친절하게 답변하세요.\n\n---\n${contextText}\n---\n\n${lastUserMsg.content}`
+                    text: `${systemContext}\n\n아래 대화 내용을 참고하여 대화 맥락을 파악하고 User의 메시지에 친절하게 답변하세요.\n\n---\n${contextText}\n---\n\n${lastUserMsg.content}`
                 }]
             });
         } else {
             contents.push({
                 role: "user",
-                parts: [{ text: lastUserMsg.content }]
+                parts: [{ text: `${systemContext}\n\n${lastUserMsg.content}` }]
             });
         }
 

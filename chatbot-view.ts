@@ -16,7 +16,7 @@ export class ChatbotView extends ItemView {
     constructor(leaf: WorkspaceLeaf, plugin?: any) {
         super(leaf);
         this.openaiService = new OpenAIService();
-        this.geminiService = new GeminiService();
+        this.geminiService = new GeminiService(undefined, this.app); // app 인스턴스 전달
         this.plugin = plugin;
         
         // 플러그인이 있으면 초기 설정
