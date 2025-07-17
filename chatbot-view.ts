@@ -12,6 +12,12 @@ export class ChatbotView extends ItemView {
     private plugin: any; // 플러그인 인스턴스 참조
     private messageInput: HTMLTextAreaElement | null = null; // 입력 필드 참조
     private sendButton: HTMLButtonElement | null = null; // 전송 버튼 참조
+    private mentionedNotes: string[] = []; // 언급된 노트들
+    private mentionedNotesInfo: Array<{name: string, path: string}> = []; // 언급된 노트들의 상세 정보
+    private noteAutocomplete: HTMLElement | null = null; // 노트 자동완성 UI
+    private selectedNoteIndex: number = -1; // 선택된 노트 인덱스
+    private isShowingNoteAutocomplete: boolean = false; // 자동완성 표시 여부
+    private currentMentionStart: number = -1; // '@' 시작 위치
 
     constructor(leaf: WorkspaceLeaf, plugin?: any) {
         super(leaf);
@@ -262,8 +268,11 @@ export class ChatbotView extends ItemView {
             }
         };
 
-        // 입력할 때마다 높이 조절
-        messageInput.addEventListener("input", adjustTextareaHeight);
+        // 입력할 때마다 높이 조절 및 멘션 처리
+        messageInput.addEventListener("input", (e) => {
+            adjustTextareaHeight();
+            this.handleMentionInput(e);
+        });
         
         // 초기 높이 설정
         adjustTextareaHeight();
@@ -273,9 +282,13 @@ export class ChatbotView extends ItemView {
             const message = messageInput.value.trim();
             if (!message || this.isProcessing) return; // 중복 방지 조건 추가
             
+            // 언급된 노트 추출
+            this.extractMentionedNotes(message);
+            
             this.sendMessage(message, messagesContainer);
             messageInput.value = "";
             adjustTextareaHeight(); // 높이 초기화
+            this.hideNoteAutocomplete(); // 자동완성 숨기기
         };
 
         // 전송 버튼 클릭 이벤트
@@ -286,6 +299,12 @@ export class ChatbotView extends ItemView {
 
         // Enter 키 이벤트 (Shift+Enter는 줄바꿈, Enter는 전송)
         messageInput.addEventListener("keydown", (e) => {
+            // 노트 자동완성이 표시된 상태에서의 키보드 네비게이션
+            if (this.isShowingNoteAutocomplete) {
+                this.handleNoteAutocompleteNavigation(e);
+                return;
+            }
+            
             if (e.key === "Enter") {
                 if (e.shiftKey) {
                     // Shift+Enter: 줄바꿈 (기본 동작 허용)
@@ -295,7 +314,18 @@ export class ChatbotView extends ItemView {
                     e.preventDefault();
                     handleSendMessage();
                 }
+            } else if (e.key === "Escape") {
+                // ESC 키로 자동완성 숨기기
+                this.hideNoteAutocomplete();
             }
+        });
+
+        // 입력 필드에서 포커스 잃을 때 자동완성 숨기기
+        messageInput.addEventListener("blur", () => {
+            // 약간의 지연을 주어 클릭 이벤트가 처리되도록 함
+            setTimeout(() => {
+                this.hideNoteAutocomplete();
+            }, 200);
         });
     }
 
@@ -340,7 +370,12 @@ export class ChatbotView extends ItemView {
                     (this.currentProvider === 'openai' ? 'gpt-4.1' : 'gemini-2.5-flash');
                 
                 // AI API 호출
-                const response = await currentService.sendMessage(model);
+                let response: string;
+                if (this.currentProvider === 'gemini') {
+                    response = await this.geminiService.sendMessage(model, this.mentionedNotesInfo);
+                } else {
+                    response = await currentService.sendMessage(model);
+                }
 
                 // 로딩 메시지 제거
                 loadingMessage.remove();
@@ -677,5 +712,249 @@ export class ChatbotView extends ItemView {
         newHistory.forEach(msg => {
             currentService.addMessage(msg.role, msg.content);
         });
+    }
+
+    // 최근 노트 가져오기
+    private getRecentNotes(limit: number = 10): Array<{name: string, path: string}> {
+        const files = this.app.vault.getMarkdownFiles();
+        
+        // 최근 수정된 순서대로 정렬
+        const sortedFiles = files.sort((a, b) => b.stat.mtime - a.stat.mtime);
+        
+        return sortedFiles.slice(0, limit).map(file => ({
+            name: file.basename,
+            path: file.path
+        }));
+    }
+
+    // 노트 검색
+    private searchNotes(query: string): Array<{name: string, path: string}> {
+        const files = this.app.vault.getMarkdownFiles();
+        const lowerQuery = query.toLowerCase();
+        
+        return files
+            .filter(file => file.basename.toLowerCase().includes(lowerQuery))
+            .slice(0, 10) // 최대 10개
+            .map(file => ({
+                name: file.basename,
+                path: file.path
+            }));
+    }
+
+    // 노트 자동완성 표시
+    private showNoteAutocomplete(query: string = '') {
+        if (!this.messageInput) return;
+        
+        // 기존 자동완성 제거
+        this.hideNoteAutocomplete();
+        
+        // 노트 가져오기
+        const notes = query ? this.searchNotes(query) : this.getRecentNotes();
+        
+        if (notes.length === 0) {
+            this.hideNoteAutocomplete();
+            return;
+        }
+        
+        // 자동완성 컨테이너 생성
+        const inputContainer = this.messageInput.parentElement;
+        if (!inputContainer) return;
+        
+        this.noteAutocomplete = inputContainer.createEl('div', {
+            cls: 'chatbot-note-autocomplete'
+        });
+        
+        if (notes.length === 0) {
+            this.noteAutocomplete.createEl('div', {
+                cls: 'chatbot-note-autocomplete-empty',
+                text: query ? '검색 결과가 없습니다.' : '최근 노트가 없습니다.'
+            });
+        } else {
+            notes.forEach((note, index) => {
+                const item = this.noteAutocomplete!.createEl('div', {
+                    cls: 'chatbot-note-autocomplete-item'
+                });
+                
+                if (index === this.selectedNoteIndex) {
+                    item.addClass('selected');
+                }
+                
+                item.createEl('span', {
+                    cls: 'chatbot-note-autocomplete-item-icon',
+                    text: '📝'
+                });
+                
+                item.createEl('span', {
+                    cls: 'chatbot-note-autocomplete-item-title',
+                    text: note.name
+                });
+                
+                if (note.path !== note.name + '.md') {
+                    item.createEl('span', {
+                        cls: 'chatbot-note-autocomplete-item-path',
+                        text: note.path
+                    });
+                }
+                
+                // 클릭 이벤트
+                item.addEventListener('click', () => {
+                    this.selectNote(note.name);
+                });
+            });
+        }
+        
+        this.isShowingNoteAutocomplete = true;
+    }
+
+    // 노트 자동완성 숨기기
+    private hideNoteAutocomplete() {
+        if (this.noteAutocomplete) {
+            this.noteAutocomplete.remove();
+            this.noteAutocomplete = null;
+        }
+        this.isShowingNoteAutocomplete = false;
+        this.selectedNoteIndex = -1;
+    }
+
+    // 노트 선택
+    private selectNote(noteName: string) {
+        if (!this.messageInput) return;
+        
+        const currentValue = this.messageInput.value;
+        const cursorPos = this.messageInput.selectionStart || 0;
+        
+        // '@' 시작 위치부터 현재 커서 위치까지 교체
+        const beforeMention = currentValue.substring(0, this.currentMentionStart);
+        const afterMention = currentValue.substring(cursorPos);
+        
+        const newValue = beforeMention + `@${noteName} ` + afterMention;
+        this.messageInput.value = newValue;
+        
+        // 커서 위치 조정
+        const newCursorPos = beforeMention.length + noteName.length + 2; // @ + noteName + space
+        this.messageInput.setSelectionRange(newCursorPos, newCursorPos);
+        
+        // 언급된 노트 추가
+        if (!this.mentionedNotes.includes(noteName)) {
+            this.mentionedNotes.push(noteName);
+        }
+        
+        this.hideNoteAutocomplete();
+        this.messageInput.focus();
+    }
+
+    // 키보드 네비게이션
+    private handleNoteAutocompleteNavigation(event: KeyboardEvent) {
+        if (!this.isShowingNoteAutocomplete || !this.noteAutocomplete) return;
+        
+        const items = this.noteAutocomplete.querySelectorAll('.chatbot-note-autocomplete-item');
+        if (items.length === 0) return;
+        
+        switch (event.key) {
+            case 'ArrowDown':
+                event.preventDefault();
+                this.selectedNoteIndex = Math.min(this.selectedNoteIndex + 1, items.length - 1);
+                this.updateSelectedNote();
+                break;
+            case 'ArrowUp':
+                event.preventDefault();
+                this.selectedNoteIndex = Math.max(this.selectedNoteIndex - 1, 0);
+                this.updateSelectedNote();
+                break;
+            case 'Enter':
+                event.preventDefault();
+                if (this.selectedNoteIndex >= 0) {
+                    const selectedItem = items[this.selectedNoteIndex];
+                    const noteName = selectedItem.querySelector('.chatbot-note-autocomplete-item-title')?.textContent;
+                    if (noteName) {
+                        this.selectNote(noteName);
+                    }
+                }
+                break;
+            case 'Escape':
+                event.preventDefault();
+                this.hideNoteAutocomplete();
+                break;
+        }
+    }
+
+    // 선택된 노트 업데이트
+    private updateSelectedNote() {
+        if (!this.noteAutocomplete) return;
+        
+        const items = this.noteAutocomplete.querySelectorAll('.chatbot-note-autocomplete-item');
+        items.forEach((item, index) => {
+            if (index === this.selectedNoteIndex) {
+                item.addClass('selected');
+            } else {
+                item.removeClass('selected');
+            }
+        });
+    }
+
+    // 입력 텍스트에서 '@' 언급 처리
+    private handleMentionInput(event: Event) {
+        if (!this.messageInput) return;
+        
+        const input = event.target as HTMLTextAreaElement;
+        const cursorPos = input.selectionStart || 0;
+        const text = input.value;
+        
+        // '@' 뒤의 텍스트 찾기
+        let mentionStart = -1;
+        for (let i = cursorPos - 1; i >= 0; i--) {
+            if (text[i] === '@') {
+                mentionStart = i;
+                break;
+            }
+            if (text[i] === ' ' || text[i] === '\n') {
+                break;
+            }
+        }
+        
+        if (mentionStart !== -1) {
+            // '@' 뒤의 쿼리 추출
+            const query = text.substring(mentionStart + 1, cursorPos);
+            this.currentMentionStart = mentionStart;
+            this.selectedNoteIndex = 0; // 첫 번째 항목 선택
+            this.showNoteAutocomplete(query);
+        } else {
+            this.hideNoteAutocomplete();
+        }
+    }
+
+    // 메시지에서 언급된 노트 추출
+    private extractMentionedNotes(message: string) {
+        const mentions = message.match(/@([^\s]+)/g);
+        if (mentions) {
+            const noteNames = mentions.map(mention => mention.substring(1)); // '@' 제거
+            
+            // 각 노트 이름에 해당하는 파일 찾기
+            const mentionedNoteInfo: Array<{name: string, path: string}> = [];
+            
+            noteNames.forEach(noteName => {
+                const files = this.app.vault.getMarkdownFiles();
+                const matchingFile = files.find(file => file.basename === noteName);
+                
+                if (matchingFile) {
+                    mentionedNoteInfo.push({
+                        name: noteName,
+                        path: matchingFile.path
+                    });
+                } else {
+                    // 파일을 찾을 수 없는 경우에도 정보 저장
+                    mentionedNoteInfo.push({
+                        name: noteName,
+                        path: `${noteName}.md (파일을 찾을 수 없음)`
+                    });
+                }
+            });
+            
+            this.mentionedNotes = noteNames; // 기존 방식 유지 (호환성)
+            this.mentionedNotesInfo = mentionedNoteInfo; // 새로운 상세 정보
+        } else {
+            this.mentionedNotes = [];
+            this.mentionedNotesInfo = [];
+        }
     }
 }

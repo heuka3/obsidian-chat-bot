@@ -41,6 +41,7 @@
     display: flex;
     justify-content: center; /* 가로 중앙 정렬 */
     align-items: center;
+    position: relative; /* 자동완성 드롭다운 위치 지정을 위해 */
 }
 
 .chatbot-input {
@@ -581,4 +582,76 @@
     font-size: 12px;
     color: var(--text-muted);
     font-weight: normal;
+}
+
+/* 노트 자동완성 드롭다운 스타일 */
+.chatbot-note-autocomplete {
+    position: absolute;
+    bottom: 100%;
+    left: 0;
+    right: 0;
+    background: var(--background-primary);
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 4px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+    max-height: 200px;
+    overflow-y: auto;
+    z-index: 1000;
+    margin-bottom: 2px;
+}
+
+.chatbot-note-autocomplete-item {
+    padding: 8px 12px;
+    cursor: pointer;
+    border-bottom: 1px solid var(--background-modifier-border);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.chatbot-note-autocomplete-item:last-child {
+    border-bottom: none;
+}
+
+.chatbot-note-autocomplete-item:hover,
+.chatbot-note-autocomplete-item.selected {
+    background: var(--background-modifier-hover);
+}
+
+.chatbot-note-autocomplete-item-icon {
+    color: var(--text-muted);
+    font-size: 14px;
+}
+
+.chatbot-note-autocomplete-item-title {
+    font-weight: 500;
+    color: var(--text-normal);
+}
+
+.chatbot-note-autocomplete-item-path {
+    color: var(--text-muted);
+    font-size: 12px;
+}
+
+.chatbot-note-autocomplete-empty {
+    padding: 12px;
+    text-align: center;
+    color: var(--text-muted);
+    font-style: italic;
+}
+
+/* 언급된 노트 태그 스타일 */
+.chatbot-mentioned-note {
+    display: inline-block;
+    background: var(--background-modifier-border);
+    color: var(--text-accent);
+    padding: 2px 6px;
+    border-radius: 3px;
+    font-size: 12px;
+    margin: 0 2px;
+    text-decoration: none;
+}
+
+.chatbot-mentioned-note:hover {
+    background: var(--background-modifier-hover);
 }

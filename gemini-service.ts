@@ -236,7 +236,16 @@ export class GeminiService {
                 });
                 this.originalToSanitizedMapping.set(tool.name, validName);
                 
-                console.log(`🔧 도구 이름 변환: "${tool.name}" -> "${validName}" (서버: ${server.name})`);
+                console.log(`🔧 도구 이름 변환:`);
+                console.log(`   원본 도구: "${tool.name}"`);
+                console.log(`   조합된 이름: "${originalName}"`);
+                console.log(`   정리된 이름: "${validName}"`);
+                console.log(`   서버: ${server.name}`);
+                console.log(`   매핑 저장: "${validName}" -> {serverName: "${server.name}", toolName: "${tool.name}"}`);
+                
+                if (originalName !== validName) {
+                    console.log(`   ⚠️  이름 변경됨: "${originalName}" -> "${validName}"`);
+                }
                 
                 return {
                     name: validName,
@@ -244,6 +253,12 @@ export class GeminiService {
                     parameters: tool.inputSchema,
                 };
             });
+
+            // 매핑 테이블 전체 출력 (디버깅용)
+            console.log(`📋 도구 매핑 테이블 (${server.name}):`);
+            for (const [key, value] of this.toolNameMapping.entries()) {
+                console.log(`   "${key}" -> 서버="${value.serverName}", 도구="${value.toolName}"`);
+            }
 
             this.availableTools.push(...tools);
             this.mcpClients.set(server.name, client);
@@ -266,13 +281,14 @@ export class GeminiService {
     private sanitizeFunctionName(name: string): string {
         // Gemini 함수 이름 규칙:
         // - 문자 또는 밑줄로 시작
-        // - 영숫자, 밑줄, 점, 대시만 허용
+        // - 영숫자, 밑줄만 허용 (하이픈은 허용되지 않음)
         // - 최대 64자
         
         let sanitized = name
-            .replace(/[^a-zA-Z0-9_.-]/g, '_')  // 허용되지 않는 문자를 밑줄로 변경
+            .replace(/[^a-zA-Z0-9_]/g, '_')    // 허용되지 않는 문자를 밑줄로 변경 (하이픈 포함)
             .replace(/^[^a-zA-Z_]/, '_')       // 첫 문자가 문자나 밑줄이 아니면 밑줄 추가
-            .substring(0, 64);                // 최대 64자로 제한
+            .replace(/_{2,}/g, '_')            // 연속된 밑줄을 하나로 정리
+            .substring(0, 64);                 // 최대 64자로 제한
         
         return sanitized;
     }
@@ -304,7 +320,7 @@ export class GeminiService {
     }
 
     // 시스템 컨텍스트 생성
-    private buildSystemContext(vaultName: string): string {
+    private buildSystemContext(vaultName: string, mentionedNotes: Array<{name: string, path: string}> = []): string {
         const availableToolsList = this.availableTools.length > 0 
             ? this.availableTools.map(tool => {
                 const params = tool.parameters && tool.parameters.properties 
@@ -323,13 +339,17 @@ export class GeminiService {
             }).join('\n')
             : '사용 가능한 도구가 없습니다.';
 
+        const mentionedNotesText = mentionedNotes.length > 0 
+            ? `\n- 사용자가 언급한 노트: ${mentionedNotes.map(note => `"${note.name}" (경로: ${note.path})`).join(', ')}`
+            : '';
+
         return `=== SYSTEM CONTEXT ===
 당신은 Obsidian의 AI Chatbot 플러그인에서 작동하는 AI 어시스턴트입니다.
 
 **현재 환경:**
 - Obsidian Vault: "${vaultName}"
 - 플러그인: AI Chatbot
-- 위치: Obsidian 내부 플러그인 환경
+- 위치: Obsidian 내부 플러그인 환경${mentionedNotesText}
 
 **사용 가능한 도구 (MCP 서버를 통한 Function Calling):**
 ${availableToolsList}
@@ -340,6 +360,7 @@ ${availableToolsList}
 3. 파일 경로나 vault 관련 작업을 수행할 때는 현재 vault 이름을 고려하세요.
 4. 도구를 사용할 때는 적절한 매개변수를 전달하여 정확한 결과를 얻도록 하세요.
 5. 사용자가 vault나 노트에 대한 질문을 할 때는 현재 "${vaultName}" vault 컨텍스트에서 답변하세요.
+6. 사용자가 언급한 노트들이 있다면 해당 노트들의 내용을 참고하여 답변하세요.
 
 **⚠️ Function Calling 필수 규칙:**
 - 도구를 호출할 때는 반드시 해당 도구의 정확한 스키마에 정의된 매개변수만 사용하세요.
@@ -361,19 +382,34 @@ ${availableToolsList}
         const mappingInfo = this.toolNameMapping.get(toolName);
         if (!mappingInfo) {
             console.error(`❌ 도구 매핑 정보를 찾을 수 없음: "${toolName}"`);
+            console.error(`📋 현재 사용 가능한 매핑:`);
+            for (const [key, value] of this.toolNameMapping.entries()) {
+                console.error(`   "${key}" -> 서버="${value.serverName}", 도구="${value.toolName}"`);
+            }
             throw new Error(`Tool mapping not found for ${toolName}`);
         }
         
         const { serverName, toolName: actualToolName } = mappingInfo;
-        console.log(`📝 매핑 정보: 서버="${serverName}", 도구="${actualToolName}"`);
+        console.log(`📝 매핑 정보 해석:`);
+        console.log(`   Gemini 도구 이름: "${toolName}"`);
+        console.log(`   → 서버: "${serverName}"`);
+        console.log(`   → 실제 도구 이름: "${actualToolName}"`);
         
         const client = this.mcpClients.get(serverName);
         if (!client) {
             console.error(`❌ MCP 서버를 찾을 수 없음: "${serverName}"`);
+            console.error(`📋 사용 가능한 MCP 클라이언트:`);
+            for (const [key, value] of this.mcpClients.entries()) {
+                console.error(`   "${key}"`);
+            }
             throw new Error(`MCP server ${serverName} not found`);
         }
 
-        console.log(`🚀 MCP 도구 실행: 서버="${serverName}", 도구="${actualToolName}"`);
+        console.log(`🚀 MCP 도구 실행:`);
+        console.log(`   서버: "${serverName}"`);
+        console.log(`   도구: "${actualToolName}"`);
+        console.log(`   매개변수: ${JSON.stringify(args)}`);
+        
         const result = await client.callTool({
             name: actualToolName,
             arguments: args,
@@ -386,8 +422,9 @@ ${availableToolsList}
     /**
      * Gemini API를 사용해서 메시지 전송 (MCP Function Calling 지원)
      * model: string - 사용할 모델명 (예: "gemini-2.5-flash")
+     * mentionedNotes: Array<{name: string, path: string}> - 언급된 노트 목록 (이름과 경로)
      */
-    async sendMessage(model: string = 'gemini-2.5-flash'): Promise<string> {
+    async sendMessage(model: string = 'gemini-2.5-flash', mentionedNotes: Array<{name: string, path: string}> = []): Promise<string> {
         if (!this.isConfigured()) {
             throw new Error('Gemini API key가 설정되지 않았습니다.');
         }
@@ -408,7 +445,7 @@ ${availableToolsList}
         const vaultName = this.getVaultName();
         
         // 시스템 컨텍스트 생성
-        const systemContext = this.buildSystemContext(vaultName);
+        const systemContext = this.buildSystemContext(vaultName, mentionedNotes);
         
         // 대화 내용 구성
         let contents = [];
@@ -473,7 +510,20 @@ ${availableToolsList}
                     const toolName = functionCall.name;
                     const toolArgs = functionCall.args;
 
-                    console.log(`[Calling MCP tool ${toolName} with args ${JSON.stringify(toolArgs)}]`);
+                    console.log(`🔍 Function Call 디버깅:`);
+                    console.log(`   Gemini가 호출한 도구 이름: "${toolName}"`);
+                    console.log(`   매개변수: ${JSON.stringify(toolArgs)}`);
+                    
+                    // 매핑 정보 확인
+                    const mappingInfo = this.toolNameMapping.get(toolName);
+                    if (mappingInfo) {
+                        console.log(`   ✅ 매핑 찾음: 서버="${mappingInfo.serverName}", 원본 도구="${mappingInfo.toolName}"`);
+                    } else {
+                        console.log(`   ❌ 매핑 없음! 사용 가능한 매핑:`);
+                        for (const [key, value] of this.toolNameMapping.entries()) {
+                            console.log(`      "${key}" -> 서버="${value.serverName}", 도구="${value.toolName}"`);
+                        }
+                    }
 
                     try {
                         // MCP 서버에 도구 요청
