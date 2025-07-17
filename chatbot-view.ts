@@ -18,6 +18,7 @@ export class ChatbotView extends ItemView {
     private selectedNoteIndex: number = -1; // 선택된 노트 인덱스
     private isShowingNoteAutocomplete: boolean = false; // 자동완성 표시 여부
     private currentMentionStart: number = -1; // '@' 시작 위치
+    private updatePlanExecuteButtonState: () => void = () => {}; // Plan & Execute 버튼 상태 업데이트 함수
 
     constructor(leaf: WorkspaceLeaf, plugin?: any) {
         super(leaf);
@@ -67,6 +68,9 @@ export class ChatbotView extends ItemView {
                 console.error('Error updating MCP servers on provider change:', error);
             });
         }
+        
+        // Plan & Execute 버튼 상태 업데이트
+        this.updatePlanExecuteButtonState();
     }
 
     // 현재 활성화된 AI 서비스 반환
@@ -235,6 +239,55 @@ export class ChatbotView extends ItemView {
         clearButton.addEventListener("click", () => {
             this.clearChatHistory(messagesContainer);
         });
+
+        // Plan & Execute 모드 토글 버튼 (Gemini 제공자일 때만 표시)
+        const planExecuteButton = buttonContainer.createEl("button", {
+            text: "🧠",
+            cls: "chatbot-plan-execute-button"
+        });
+
+        // Plan & Execute 모드 토글 이벤트
+        planExecuteButton.addEventListener("click", () => {
+            if (this.currentProvider === 'gemini') {
+                const currentMode = this.geminiService.isPlanExecuteMode();
+                this.geminiService.setPlanExecuteMode(!currentMode);
+                
+                // 버튼 스타일 업데이트
+                if (this.geminiService.isPlanExecuteMode()) {
+                    planExecuteButton.addClass("active");
+                    planExecuteButton.title = "Plan & Execute 모드 활성화됨 (클릭하여 비활성화)";
+                } else {
+                    planExecuteButton.removeClass("active");
+                    planExecuteButton.title = "Plan & Execute 모드 비활성화됨 (클릭하여 활성화)";
+                }
+                
+                new Notice(`Plan & Execute 모드 ${this.geminiService.isPlanExecuteMode() ? '활성화' : '비활성화'}`);
+            } else {
+                new Notice("Plan & Execute 모드는 Gemini 제공자에서만 사용할 수 있습니다.");
+            }
+        });
+
+        // 초기 Plan & Execute 버튼 상태 설정
+        const updatePlanExecuteButton = () => {
+            if (this.currentProvider === 'gemini') {
+                planExecuteButton.style.display = "block";
+                if (this.geminiService.isPlanExecuteMode()) {
+                    planExecuteButton.addClass("active");
+                    planExecuteButton.title = "Plan & Execute 모드 활성화됨 (클릭하여 비활성화)";
+                } else {
+                    planExecuteButton.removeClass("active");
+                    planExecuteButton.title = "Plan & Execute 모드 비활성화됨 (클릭하여 활성화)";
+                }
+            } else {
+                planExecuteButton.style.display = "none";
+            }
+        };
+
+        // 초기 상태 설정
+        updatePlanExecuteButton();
+
+        // 제공자 변경 시 버튼 상태 업데이트를 위한 메서드 추가
+        this.updatePlanExecuteButtonState = updatePlanExecuteButton;
 
         // 전송 버튼 (이모지 사용)
         const sendButton = buttonContainer.createEl("button", {

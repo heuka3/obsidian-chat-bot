@@ -170,9 +170,43 @@
 }
 
 .chatbot-clear-button:hover {
-    background: var(--background-modifier-error);
-    color: var(--text-on-accent);
+    background: var(--background-modifier-border-focus);
+    color: var(--text-normal);
     transform: scale(1.05);
+}
+
+.chatbot-plan-execute-button {
+    width: 24px;
+    height: 24px;
+    padding: 0;
+    background: var(--background-modifier-border-hover);
+    color: var(--text-muted);
+    border: none;
+    border-radius: 50%;
+    cursor: pointer;
+    font-size: 12px;
+    font-weight: normal;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    transition: all 0.2s ease;
+    margin-right: 4px; /* 전송 버튼과의 간격 */
+}
+
+.chatbot-plan-execute-button:hover {
+    background: var(--background-modifier-border-focus);
+    color: var(--text-normal);
+    transform: scale(1.05);
+}
+
+.chatbot-plan-execute-button.active {
+    background: var(--interactive-accent);
+    color: var(--text-on-accent);
+}
+
+.chatbot-plan-execute-button.active:hover {
+    background: var(--interactive-accent-hover);
 }
 
 .chatbot-message {

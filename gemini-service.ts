@@ -3,8 +3,10 @@ import { GoogleGenAI, Type, FunctionCallingConfigMode } from "@google/genai";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { spawn } from 'child_process';
+import { PlanToolSelectService } from "./plan-tool-select";
+import { PlanExecutionService } from "./plan-execution";
 
-interface GeminiTool {
+export interface GeminiTool {
     name: string;
     description?: string;
     parameters: any;
@@ -73,6 +75,11 @@ export class GeminiService {
     // 도구 이름 매핑: 원본 도구 이름 -> sanitized 이름 (역방향 매핑)
     private originalToSanitizedMapping: Map<string, string> = new Map();
 
+    // 새로운 Plan & Execute 서비스
+    private planToolSelectService: PlanToolSelectService | null = null;
+    private planExecutionService: PlanExecutionService | null = null;
+    private usePlanExecute: boolean = false; // 기본값은 false (기존 방식 사용)
+
     constructor(apiKey?: string, app?: any) {
         if (apiKey) {
             this.setApiKey(apiKey);
@@ -86,6 +93,10 @@ export class GeminiService {
         this.apiKey = apiKey;
         if (apiKey) {
             this.genAI = new GoogleGenAI({ apiKey: apiKey });
+            
+            // Plan & Execute 서비스 초기화
+            this.planToolSelectService = new PlanToolSelectService(apiKey);
+            this.planExecutionService = new PlanExecutionService(apiKey, this);
         }
     }
 
@@ -260,11 +271,19 @@ export class GeminiService {
                 console.log(`   "${key}" -> 서버="${value.serverName}", 도구="${value.toolName}"`);
             }
 
+            // Plan & Execute 서비스에 도구 정보 업데이트
+            if (this.planToolSelectService) {
+                this.planToolSelectService.updateAvailableTools(this.availableTools, this.toolNameMapping);
+            }
+            
             this.availableTools.push(...tools);
             this.mcpClients.set(server.name, client);
             this.mcpTransports.set(server.name, transport);
 
             console.log(`✅ MCP 서버 ${server.name} 연결 완료 (${tools.length}개 도구)`);
+            
+            // 모든 서버 연결 완료 후 Plan & Execute 서비스 업데이트
+            this.updatePlanExecuteServices();
         } catch (e) {
             const error = e as Error;
             if (error.message.includes('ENOENT')) {
@@ -374,8 +393,8 @@ ${availableToolsList}
 =======================`;
     }
 
-    // MCP 도구 호출
-    private async callMCPTool(toolName: string, args: any): Promise<any> {
+    // MCP 도구 호출 (외부에서 접근 가능)
+    async callMCPTool(toolName: string, args: any): Promise<any> {
         console.log(`🔧 MCP 도구 호출 요청: "${toolName}"`);
         
         // 매핑된 정보 조회
@@ -429,6 +448,74 @@ ${availableToolsList}
             throw new Error('Gemini API key가 설정되지 않았습니다.');
         }
 
+        // 최근 user/assistant 메시지 10쌍(21개) 추출
+        const filtered = this.conversationHistory.filter(m => m.role === 'user' || m.role === 'assistant');
+        const latest_context = filtered.slice(-21);
+
+        // 가장 최근 user 메시지 추출
+        if (latest_context.length === 0) throw new Error("No user message found.");
+        const lastUserMsgRealIdx = latest_context.length - 1;
+        const lastUserMsg = latest_context[lastUserMsgRealIdx];
+
+        // instruction용 대화 맥락
+        const contextForInstruction = latest_context.slice(0, lastUserMsgRealIdx);
+        const conversationContext = contextForInstruction.map(m => 
+            `${m.role === 'user' ? 'User' : 'Assistant'}: ${m.content}`
+        ).join('\n');
+
+        // Plan & Execute 모드 확인
+        if (this.usePlanExecute && this.planToolSelectService && this.planExecutionService) {
+            console.log("🎯 Plan & Execute 모드로 실행");
+            
+            try {
+                // Obsidian vault 이름 추출
+                const vaultName = this.getVaultName();
+                
+                // 환경 정보 구성
+                const environmentContext = `=== OBSIDIAN 환경 정보 ===
+- Obsidian Vault: "${vaultName}"
+- 플러그인: AI Chatbot (Plan & Execute 모드)
+- 위치: Obsidian 내부 플러그인 환경
+${mentionedNotes.length > 0 ? `- 사용자가 언급한 노트: ${mentionedNotes.map(note => `"${note.name}" (경로: ${note.path})`).join(', ')}` : ''}
+
+**중요 컨텍스트:**
+- 당신은 Obsidian vault "${vaultName}" 내에서 작동하고 있습니다.
+- 파일 경로나 vault 관련 작업을 수행할 때는 현재 vault 이름을 고려하세요.
+- 사용자가 vault나 노트에 대한 질문을 할 때는 현재 "${vaultName}" vault 컨텍스트에서 답변하세요.
+===============================`;
+
+                // 1. 계획 수립
+                const plan = await this.planToolSelectService.createExecutionPlan(
+                    lastUserMsg.content,
+                    conversationContext,
+                    environmentContext
+                );
+
+                // 2. 계획 실행
+                const response = await this.planExecutionService.executePlan(
+                    lastUserMsg.content,
+                    plan,
+                    conversationContext,
+                    environmentContext
+                );
+
+                return response;
+            } catch (error) {
+                console.error('Plan & Execute 모드 실행 실패:', error);
+                console.log('기존 모드로 폴백합니다.');
+                // 기존 모드로 폴백
+            }
+        }
+
+        // 기존 Function Calling 모드
+        console.log("🔧 기존 Function Calling 모드로 실행");
+        return await this.sendMessageLegacy(model, mentionedNotes, conversationContext);
+    }
+
+    /**
+     * 기존 Function Calling 방식 (폴백용)
+     */
+    private async sendMessageLegacy(model: string, mentionedNotes: Array<{name: string, path: string}>, conversationContext: string): Promise<string> {
         // 최근 user/assistant 메시지 10쌍(21개) 추출
         const filtered = this.conversationHistory.filter(m => m.role === 'user' || m.role === 'assistant');
         const latest_context = filtered.slice(-21);
@@ -593,8 +680,37 @@ ${availableToolsList}
         }
     }
 
+    // Plan & Execute 서비스 업데이트
+    private updatePlanExecuteServices() {
+        if (this.planToolSelectService) {
+            this.planToolSelectService.updateAvailableTools(this.availableTools, this.toolNameMapping);
+            console.log(`🔄 Plan & Execute 서비스 업데이트: ${this.availableTools.length}개 도구`);
+        }
+    }
+
+    // Plan & Execute 모드 설정
+    setPlanExecuteMode(enabled: boolean) {
+        this.usePlanExecute = enabled;
+        console.log(`🎯 Plan & Execute 모드: ${enabled ? '활성화' : '비활성화'}`);
+    }
+
+    // Plan & Execute 모드 상태 확인
+    isPlanExecuteMode(): boolean {
+        return this.usePlanExecute;
+    }
+
     // 서비스 정리
     async cleanup() {
         await this.disconnectAllMCPServers();
+    }
+    
+    // 특정 도구의 정보를 가져오는 메서드
+    getToolInfo(toolName: string): GeminiTool | null {
+        return this.availableTools.find(tool => tool.name === toolName) || null;
+    }
+    
+    // 모든 사용 가능한 도구 정보를 가져오는 메서드  
+    getAllToolsInfo(): GeminiTool[] {
+        return [...this.availableTools];
     }
 }
