@@ -96,7 +96,7 @@ export class GeminiService {
             
             // Plan & Execute 서비스 초기화
             this.planToolSelectService = new PlanToolSelectService(apiKey);
-            this.planExecutionService = new PlanExecutionService(apiKey, this);
+            this.planExecutionService = new PlanExecutionService(apiKey, this, this.planToolSelectService);
         }
     }
 
@@ -162,6 +162,9 @@ export class GeminiService {
                 console.error(`Failed to connect to MCP server ${server.name}:`, error);
             }
         }
+        
+        // 모든 서버 연결 완료 후 Plan & Execute 서비스 업데이트
+        this.updatePlanExecuteServices();
     }
 
     // 단일 MCP 서버에 연결
@@ -271,19 +274,11 @@ export class GeminiService {
                 console.log(`   "${key}" -> 서버="${value.serverName}", 도구="${value.toolName}"`);
             }
 
-            // Plan & Execute 서비스에 도구 정보 업데이트
-            if (this.planToolSelectService) {
-                this.planToolSelectService.updateAvailableTools(this.availableTools, this.toolNameMapping);
-            }
-            
             this.availableTools.push(...tools);
             this.mcpClients.set(server.name, client);
             this.mcpTransports.set(server.name, transport);
 
             console.log(`✅ MCP 서버 ${server.name} 연결 완료 (${tools.length}개 도구)`);
-            
-            // 모든 서버 연결 완료 후 Plan & Execute 서비스 업데이트
-            this.updatePlanExecuteServices();
         } catch (e) {
             const error = e as Error;
             if (error.message.includes('ENOENT')) {
@@ -338,40 +333,6 @@ export class GeminiService {
         }
     }
 
-    // Vault의 절대 경로를 얻는 메서드
-    private getVaultAbsolutePath(): string {
-        try {
-            if (this.app && this.app.vault) {
-                // vault adapter의 basePath 사용 (절대 경로)
-                const basePath = (this.app.vault.adapter as any)?.basePath;
-                if (basePath) {
-                    return basePath;
-                }
-            }
-            
-            // 폴백: 빈 문자열 반환
-            return '';
-        } catch (error) {
-            console.error('Error getting vault absolute path:', error);
-            return '';
-        }
-    }
-
-    // 파일의 절대 경로를 생성하는 메서드
-    private getFileAbsolutePath(relativePath: string): string {
-        try {
-            const vaultPath = this.getVaultAbsolutePath();
-            if (vaultPath && relativePath) {
-                const path = require('path');
-                return path.join(vaultPath, relativePath);
-            }
-            return relativePath; // 절대 경로를 얻을 수 없으면 상대 경로 그대로 반환
-        } catch (error) {
-            console.error('Error creating absolute path:', error);
-            return relativePath;
-        }
-    }
-
     // 시스템 컨텍스트 생성
     private buildSystemContext(vaultName: string, mentionedItems: Array<{name: string, path: string, type?: 'note' | 'webview' | 'pdf', url?: string}> = []): string {
         const availableToolsList = this.availableTools.length > 0 
@@ -397,13 +358,20 @@ export class GeminiService {
                 if (item.type === 'webview') {
                     return `"${item.name}" (웹뷰: ${item.url})`;
                 } else if (item.type === 'pdf') {
+                    // PDF 파일의 경우 절대 경로를 생성하여 전달
                     const absolutePath = this.getFileAbsolutePath(item.path);
+                    console.log(`📄 buildSystemContext - PDF 경로 생성:
+                      - 파일명: ${item.name}
+                      - 원본 경로: ${item.path}  
+                      - 절대 경로: ${absolutePath}`);
                     return `"${item.name}" (PDF 파일: ${item.path}, 절대경로: ${absolutePath})`;
                 } else {
                     return `"${item.name}" (노트: ${item.path})`;
                 }
             }).join(', ')}`
             : '';
+
+        console.log('📝 buildSystemContext - 처리된 멘션 아이템:', mentionedItemsText);
 
         return `=== SYSTEM CONTEXT ===
 당신은 Obsidian의 AI Chatbot 플러그인에서 작동하는 AI 어시스턴트입니다.
@@ -474,6 +442,15 @@ ${availableToolsList}
         console.log(`   도구: "${actualToolName}"`);
         console.log(`   매개변수: ${JSON.stringify(args)}`);
         
+        // PDF 파일 경로 특별 디버깅
+        if (args.path && args.path.includes('.pdf')) {
+            console.log(`📄 PDF 파일 경로 디버깅:`);
+            console.log(`   전달된 경로: ${args.path}`);
+            console.log(`   경로 길이: ${args.path.length}`);
+            console.log(`   한글 포함: ${/[ㄱ-ㅎ|ㅏ-ㅣ|가-힣]/.test(args.path)}`);
+            console.log(`   UTF-8 바이트 수: ${Buffer.byteLength(args.path, 'utf8')}`);
+        }
+        
         const result = await client.callTool({
             name: actualToolName,
             arguments: args,
@@ -492,6 +469,14 @@ ${availableToolsList}
         if (!this.isConfigured()) {
             throw new Error('Gemini API key가 설정되지 않았습니다.');
         }
+
+        // 멘션된 아이템 디버깅 로그
+        console.log('🔍 Gemini Service - 받은 멘션된 아이템:', mentionedItems);
+        mentionedItems.forEach((item, index) => {
+            console.log(`  [${index}] ${item.name} (타입: ${item.type})`);
+            console.log(`      경로: ${item.path}`);
+            if (item.url) console.log(`      URL: ${item.url}`);
+        });
 
         // 최근 user/assistant 메시지 10쌍(21개) 추출
         const filtered = this.conversationHistory.filter(m => m.role === 'user' || m.role === 'assistant');
@@ -525,7 +510,14 @@ ${mentionedItems.length > 0 ? `- 사용자가 언급한 항목: ${mentionedItems
     if (item.type === 'webview') {
         return `"${item.name}" (웹뷰: ${item.url})`;
     } else if (item.type === 'pdf') {
+        // PDF 파일의 경우 절대 경로를 생성하여 전달
         const absolutePath = this.getFileAbsolutePath(item.path);
+        console.log(`📄 PDF 파일 경로 처리: 
+          - 파일명: ${item.name}
+          - 원본 경로: ${item.path}
+          - 절대 경로: ${absolutePath}
+          - 한글 포함: ${/[ㄱ-ㅎ|ㅏ-ㅣ|가-힣]/.test(item.name)}
+          - 공백 포함: ${/\s/.test(item.name)}`);
         return `"${item.name}" (PDF 파일: ${item.path}, 절대경로: ${absolutePath})`;
     } else {
         return `"${item.name}" (경로: ${item.path})`;
@@ -538,7 +530,13 @@ ${mentionedItems.length > 0 ? `- 사용자가 언급한 항목: ${mentionedItems
 - 사용자가 vault나 노트에 대한 질문을 할 때는 현재 "${vaultName}" vault 컨텍스트에서 답변하세요.
 - 사용자가 웹뷰를 언급한 경우, 해당 웹사이트의 내용을 참고하여 답변하세요.
 - 사용자가 PDF 파일을 언급한 경우, 절대경로를 통해 해당 PDF 파일에 접근할 수 있습니다.
+- **PDF 파일 경로 처리 시 주의사항:**
+  * 위에 제공된 절대경로는 한글 파일명을 포함하여 정확한 전체 경로입니다
+  * PDF 도구 호출 시 절대경로를 정확히 그대로 사용해야 합니다
+  * 한글, 공백, 특수문자가 포함된 파일명도 절대경로 그대로 전달하세요
 ===============================`;
+
+                console.log('🌍 Plan & Execute 모드 - 환경 컨텍스트:', environmentContext);
 
                 // 1. 계획 수립
                 const plan = await this.planToolSelectService.createExecutionPlan(
@@ -589,6 +587,7 @@ ${mentionedItems.length > 0 ? `- 사용자가 언급한 항목: ${mentionedItems
         
         // 시스템 컨텍스트 생성
         const systemContext = this.buildSystemContext(vaultName, mentionedItems);
+        console.log('🏗️ Legacy 모드 - 시스템 컨텍스트:', systemContext);
         
         // 대화 내용 구성
         let contents = [];
@@ -768,5 +767,27 @@ ${mentionedItems.length > 0 ? `- 사용자가 언급한 항목: ${mentionedItems
     // 모든 사용 가능한 도구 정보를 가져오는 메서드  
     getAllToolsInfo(): GeminiTool[] {
         return [...this.availableTools];
+    }
+    
+    // PDF 파일의 절대 경로를 생성하는 메서드 (PDF 전용)
+    private getFileAbsolutePath(relativePath: string): string {
+        try {
+            if (this.app && this.app.vault) {
+                const basePath = (this.app.vault.adapter as any)?.basePath;
+                if (basePath && relativePath) {
+                    const path = require('path');
+                    return path.join(basePath, relativePath);
+                }
+            }
+            return relativePath; // 절대 경로를 얻을 수 없으면 상대 경로 그대로 반환
+        } catch (error) {
+            console.error('Error creating absolute path for PDF:', error);
+            return relativePath;
+        }
+    }
+
+    // 도구 이름 매핑 정보 반환 (Plan & Execute에서 사용)
+    getToolNameMapping(): Map<string, { serverName: string, toolName: string }> {
+        return this.toolNameMapping;
     }
 }

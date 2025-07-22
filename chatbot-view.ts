@@ -27,6 +27,7 @@ export class ChatbotView extends ItemView {
     private isShowingNoteAutocomplete: boolean = false; // 자동완성 표시 여부
     private currentMentionStart: number = -1; // '@' 시작 위치
     private updatePlanExecuteButtonState: () => void = () => {}; // Plan & Execute 버튼 상태 업데이트 함수
+    private mentionedFilesContainer: HTMLElement | null = null; // 멘션된 파일들 표시 컨테이너
 
     constructor(leaf: WorkspaceLeaf, plugin?: any) {
         super(leaf);
@@ -198,6 +199,15 @@ export class ChatbotView extends ItemView {
             cls: "chatbot-input-container"
         });
 
+        // 멘션된 파일들 표시 영역 추가
+        const mentionedFilesContainer = inputContainer.createEl("div", {
+            cls: "chatbot-mentioned-files-container",
+            attr: { style: "display: none;" } // 기본적으로 숨김
+        });
+        
+        // 클래스 멤버로 참조 저장
+        this.mentionedFilesContainer = mentionedFilesContainer;
+
         // 메시지 입력창 (textarea로 변경)
         const messageInput = inputContainer.createEl("textarea", {
             placeholder: "메시지를 입력하세요... (Enter: 전송, Shift+Enter: 줄바꿈)",
@@ -338,13 +348,23 @@ export class ChatbotView extends ItemView {
         // 초기 높이 설정
         adjustTextareaHeight();
 
-        // 메시지 전송 함수 (중복 방지)
+        // 메시지 전송 함수 (중복 방지) - 개선된 멘션 처리
         const handleSendMessage = () => {
-            const message = messageInput.value.trim();
+            let message = messageInput.value.trim();
             if (!message || this.isProcessing) return; // 중복 방지 조건 추가
             
-            // 언급된 노트 추출
+            console.log('🔍 전송 전 상태:');
+            console.log('  - 메시지:', message);
+            console.log('  - 기존 mentionedNotesInfo:', this.mentionedNotesInfo);
+            
+            // 메시지에서 남은 @ 멘션 추출 (자동완성으로 선택하지 않은 것들)
             this.extractMentionedNotes(message);
+            
+            console.log('🔍 extractMentionedNotes 후 상태:');
+            console.log('  - mentionedNotesInfo:', this.mentionedNotesInfo);
+            
+            // 메시지에서 @ 멘션 제거 (environment context로만 전달)
+            message = this.removeMentionsFromMessage(message);
             
             this.sendMessage(message, messagesContainer);
             messageInput.value = "";
@@ -388,6 +408,9 @@ export class ChatbotView extends ItemView {
                 this.hideNoteAutocomplete();
             }, 200);
         });
+        
+        // 초기 멘션된 파일 표시 업데이트
+        this.updateMentionedFilesDisplay();
     }
 
     // UI 요소들을 비활성화/활성화하는 메서드
@@ -430,9 +453,12 @@ export class ChatbotView extends ItemView {
                 const model = this.plugin?.settings?.model || 
                     (this.currentProvider === 'openai' ? 'gpt-4.1' : 'gemini-2.5-flash');
                 
+
+                
                 // AI API 호출
                 let response: string;
                 if (this.currentProvider === 'gemini') {
+                    console.log('🔍 Gemini로 전달하는 멘션 정보:', this.mentionedNotesInfo);
                     response = await this.geminiService.sendMessage(model, this.mentionedNotesInfo);
                 } else {
                     response = await currentService.sendMessage(model);
@@ -455,6 +481,8 @@ export class ChatbotView extends ItemView {
         } finally {
             this.isProcessing = false; // 처리 완료
             this.setUIEnabled(true); // UI 활성화
+            // 전송 완료 후 멘션된 파일들 클리어
+            this.clearAllMentionedFiles();
         }
     }
 
@@ -779,22 +807,10 @@ export class ChatbotView extends ItemView {
     private getOpenTabs(limit: number = 10): Array<{name: string, path: string, type: 'note' | 'webview' | 'pdf', url?: string}> {
         const openTabs: Array<{name: string, path: string, type: 'note' | 'webview' | 'pdf', url?: string}> = [];
         
-        console.log('=== Starting webview detection ==='); // 디버깅용
-        
         // 모든 워크스페이스 리프 확인
         this.app.workspace.iterateAllLeaves((leaf) => {
             const viewType = leaf.view.getViewType();
             const view = leaf.view as any;
-            
-            console.log(`Analyzing leaf:`, {
-                viewType: viewType,
-                viewConstructorName: view.constructor.name,
-                hasUrl: !!view.url,
-                hasIframe: !!view.iframe,
-                hasWebviewElement: !!view.webviewEl,
-                hasContainer: !!view.containerEl,
-                keys: Object.keys(view).filter(k => k.includes('url') || k.includes('web') || k.includes('src'))
-            }); // Enhanced debugging
             
             if (viewType === 'markdown') {
                 // 마크다운 노트
@@ -810,10 +826,9 @@ export class ChatbotView extends ItemView {
                 // PDF 뷰
                 const file = (view as any).file;
                 if (file) {
-                    console.log(`Found PDF file: ${file.basename}`);
                     openTabs.push({
                         name: file.basename,
-                        path: file.path,
+                        path: this.getFileAbsolutePath(file.path),
                         type: 'pdf'
                     });
                 }
@@ -827,19 +842,10 @@ export class ChatbotView extends ItemView {
         const detectedWebviews = this.detectKnownWebviewTypes();
         openTabs.push(...detectedWebviews);
         
-        console.log('All found tabs:', openTabs); // 디버깅용
-        
-        // 웹뷰 감지 완료
-        const webviewCount = openTabs.filter(tab => tab.type === 'webview').length;
-        console.log(`Found ${webviewCount} webview tabs`); // 디버깅용
-        
         // 중복 제거 및 제한
         const uniqueTabs = openTabs.filter((tab, index, self) => 
             index === self.findIndex(t => t.path === tab.path)
         );
-        
-        console.log('Final unique tabs:', uniqueTabs); // 디버깅용
-        console.log('=== Webview detection complete ==='); // 디버깅용
         
         return uniqueTabs.slice(0, limit);
     }
@@ -859,47 +865,59 @@ export class ChatbotView extends ItemView {
 
     // 노트 및 열린 탭 검색
     private searchNotesAndTabs(query: string): Array<{name: string, path: string, type?: 'note' | 'webview' | 'pdf', url?: string}> {
-        console.log('searchNotesAndTabs called with query:', query); // 디버깅용
-        
         const lowerQuery = query.toLowerCase();
         const results: Array<{name: string, path: string, type?: 'note' | 'webview' | 'pdf', url?: string}> = [];
         
         // 1. 먼저 열린 탭들에서 검색
         const openTabs = this.getOpenTabs();
-        console.log('searchNotesAndTabs - openTabs:', openTabs); // 디버깅용
         
         const matchingTabs = openTabs.filter(tab => 
             tab.name.toLowerCase().includes(lowerQuery)
         );
-        console.log('searchNotesAndTabs - matchingTabs:', matchingTabs); // 디버깅용
         results.push(...matchingTabs);
         
-        // 2. 전체 노트에서 검색 (열린 탭에 없는 것들만)
-        const files = this.app.vault.getMarkdownFiles();
+        // 2. 전체 마크다운 파일에서 검색 (열린 탭에 없는 것들만)
+        const markdownFiles = this.app.vault.getMarkdownFiles();
         const openNotePaths = openTabs.filter(tab => tab.type === 'note').map(tab => tab.path);
         
-        const matchingFiles = files
+        const matchingMarkdownFiles = markdownFiles
             .filter(file => 
                 file.basename.toLowerCase().includes(lowerQuery) &&
                 !openNotePaths.includes(file.path)
             )
-            .slice(0, 5) // 열린 탭이 아닌 노트는 최대 5개까지만
+            .slice(0, 3) // 마크다운 파일은 최대 3개
             .map(file => ({
                 name: file.basename,
                 path: file.path,
                 type: 'note' as const
             }));
         
-        results.push(...matchingFiles);
+        results.push(...matchingMarkdownFiles);
         
-        console.log('searchNotesAndTabs - final results:', results); // 디버깅용
+        // 3. 전체 파일에서 PDF 검색 (열린 탭에 없는 것들만)
+        const allFiles = this.app.vault.getFiles();
+        const openPdfPaths = openTabs.filter(tab => tab.type === 'pdf').map(tab => tab.path);
+        
+        const matchingPdfFiles = allFiles
+            .filter(file => 
+                file.extension === 'pdf' &&
+                file.basename.toLowerCase().includes(lowerQuery) &&
+                !openPdfPaths.includes(this.getFileAbsolutePath(file.path))
+            )
+            .slice(0, 3) // PDF 파일은 최대 3개
+            .map(file => ({
+                name: file.basename,
+                path: this.getFileAbsolutePath(file.path),
+                type: 'pdf' as const
+            }));
+        
+        results.push(...matchingPdfFiles);
+        
         return results.slice(0, 10); // 전체 최대 10개
     }
 
     // 노트 자동완성 표시 (열린 탭 우선)
     private showNoteAutocomplete(query: string = '') {
-        console.log('showNoteAutocomplete called with query:', query); // 디버깅용
-        
         if (!this.messageInput) return;
         
         // 기존 자동완성 제거
@@ -907,12 +925,10 @@ export class ChatbotView extends ItemView {
         
         // 노트와 탭 가져오기
         const items = query ? this.searchNotesAndTabs(query) : this.getOpenTabs();
-        console.log('showNoteAutocomplete - items:', items); // 디버깅용
         
         if (items.length === 0) {
             // 폴백: 최근 노트 표시
             const recentNotes = this.getRecentNotes();
-            console.log('showNoteAutocomplete - fallback recentNotes:', recentNotes); // 디버깅용
             if (recentNotes.length === 0) {
                 this.hideNoteAutocomplete();
                 return;
@@ -973,7 +989,8 @@ export class ChatbotView extends ItemView {
                 
                 itemEl.createEl('span', {
                     cls: 'chatbot-note-autocomplete-item-title',
-                    text: item.name
+                    text: item.type === 'pdf' ? `${item.name}.pdf` : 
+                          item.type === 'note' ? `${item.name}.md` : item.name
                 });
                 
                 // 경로/URL 표시
@@ -1017,40 +1034,50 @@ export class ChatbotView extends ItemView {
         this.selectedNoteIndex = -1;
     }
 
-    // 노트 선택 (웹뷰 지원)
+    // 노트 선택 (웹뷰 지원) - 개선된 UI
     private selectNote(noteName: string, itemInfo?: {name: string, path: string, type?: 'note' | 'webview' | 'pdf', url?: string}) {
         if (!this.messageInput) return;
         
         const currentValue = this.messageInput.value;
         const cursorPos = this.messageInput.selectionStart || 0;
         
-        // '@' 시작 위치부터 현재 커서 위치까지 교체
+        // '@' 시작 위치부터 현재 커서 위치까지 제거 (메시지에서 멘션 텍스트 삭제)
         const beforeMention = currentValue.substring(0, this.currentMentionStart);
         const afterMention = currentValue.substring(cursorPos);
         
-        const newValue = beforeMention + `@${noteName} ` + afterMention;
+        const newValue = beforeMention + afterMention;
         this.messageInput.value = newValue;
         
-        // 커서 위치 조정
-        const newCursorPos = beforeMention.length + noteName.length + 2; // @ + noteName + space
-        this.messageInput.setSelectionRange(newCursorPos, newCursorPos);
+        // 커서 위치 조정 (멘션 시작 위치로)
+        this.messageInput.setSelectionRange(this.currentMentionStart, this.currentMentionStart);
         
-        // 언급된 노트/웹뷰 추가
-        if (!this.mentionedNotes.includes(noteName)) {
+        // 언급된 노트/웹뷰 추가 (중복 방지 - 이름과 타입으로 구분)
+        const existingItem = this.mentionedNotesInfo.find(item => 
+            item.name === noteName && item.type === (itemInfo?.type || 'note')
+        );
+        
+        if (!existingItem) {
             this.mentionedNotes.push(noteName);
-        }
-        
-        // 상세 정보 업데이트
-        if (itemInfo) {
-            const existingIndex = this.mentionedNotesInfo.findIndex(info => info.name === noteName);
-            if (existingIndex === -1) {
+            
+            // 상세 정보 업데이트
+            if (itemInfo) {
                 this.mentionedNotesInfo.push({
                     name: noteName,
                     path: itemInfo.path,
                     type: itemInfo.type,
                     url: itemInfo.url
                 });
+            } else {
+                // 기본 정보 추가
+                this.mentionedNotesInfo.push({
+                    name: noteName,
+                    path: `${noteName}.md`,
+                    type: 'note'
+                });
             }
+            
+            // 멘션된 파일들 UI 업데이트
+            this.updateMentionedFilesDisplay();
         }
         
         this.hideNoteAutocomplete();
@@ -1079,11 +1106,43 @@ export class ChatbotView extends ItemView {
                 event.preventDefault();
                 if (this.selectedNoteIndex >= 0) {
                     const selectedItem = items[this.selectedNoteIndex];
-                    const noteName = selectedItem.querySelector('.chatbot-note-autocomplete-item-title')?.textContent;
-                    if (noteName) {
-                        // 아이템 정보를 다시 구성해야 함 (DOM에서 정보 추출)
-                        const isWebView = selectedItem.querySelector('.chatbot-note-autocomplete-item-icon')?.textContent === '🌐';
-                        this.selectNote(noteName);
+                    const noteNameElement = selectedItem.querySelector('.chatbot-note-autocomplete-item-title');
+                    if (noteNameElement) {
+                        let displayName = noteNameElement.textContent || '';
+                        
+                        // DOM에서 타입 정보 추출
+                        const iconElement = selectedItem.querySelector('.chatbot-note-autocomplete-item-icon');
+                        const icon = iconElement?.textContent || '📝';
+                        const pathElement = selectedItem.querySelector('.chatbot-note-autocomplete-item-path');
+                        const path = pathElement?.textContent || `${displayName}.md`;
+                        
+                        let type: 'note' | 'webview' | 'pdf' = 'note';
+                        let noteName = displayName;
+                        
+                        if (icon === '🌐') {
+                            type = 'webview';
+                        } else if (icon === '📄') {
+                            type = 'pdf';
+                            // PDF인 경우 확장자 제거
+                            if (displayName.endsWith('.pdf')) {
+                                noteName = displayName.slice(0, -4);
+                            }
+                        } else {
+                            // 노트인 경우 확장자 제거
+                            if (displayName.endsWith('.md')) {
+                                noteName = displayName.slice(0, -3);
+                            }
+                        }
+                        
+                        // 아이템 정보 구성
+                        const itemInfo = {
+                            name: noteName,
+                            path: path,
+                            type: type,
+                            url: type === 'webview' ? path : undefined
+                        };
+                        
+                        this.selectNote(noteName, itemInfo);
                     }
                 }
                 break;
@@ -1116,14 +1175,15 @@ export class ChatbotView extends ItemView {
         const cursorPos = input.selectionStart || 0;
         const text = input.value;
         
-        // '@' 뒤의 텍스트 찾기
+        // '@' 뒤의 텍스트 찾기 (공백 허용 - 다음 '@' 또는 줄바꿈까지)
         let mentionStart = -1;
         for (let i = cursorPos - 1; i >= 0; i--) {
             if (text[i] === '@') {
                 mentionStart = i;
                 break;
             }
-            if (text[i] === ' ' || text[i] === '\n') {
+            // 줄바꿈만 멘션을 중단하도록 변경 (공백은 허용)
+            if (text[i] === '\n') {
                 break;
             }
         }
@@ -1141,53 +1201,118 @@ export class ChatbotView extends ItemView {
 
     // 메시지에서 언급된 노트/웹뷰 추출
     private extractMentionedNotes(message: string) {
-        const mentions = message.match(/@([^\s]+)/g);
-        if (mentions) {
-            const noteNames = mentions.map(mention => mention.substring(1)); // '@' 제거
+        // 개선된 멘션 파싱: 공백이 포함된 파일명도 처리
+        // @로 시작해서 다음 @ 또는 문자열 끝까지 매칭 (공백 포함)
+        const mentions = [];
+        const mentionRegex = /@([^@]+?)(?=\s@|$)/g;
+        let match;
+        
+        while ((match = mentionRegex.exec(message)) !== null) {
+            mentions.push(match[0]); // 전체 매치 (@포함)
+        }
+        
+        // 폴백: 기존 방식도 시도 (호환성)
+        if (mentions.length === 0) {
+            const simpleMentions = message.match(/@([^\s]+)/g);
+            if (simpleMentions) {
+                mentions.push(...simpleMentions);
+            }
+        }
+        
+
+         if (mentions.length > 0) {
+            const noteNames = mentions.map(mention => mention.substring(1).trim()); // '@' 제거 및 공백 정리
             
             // 각 노트 이름에 해당하는 파일/웹뷰 찾기
             const mentionedItemInfo: MentionedItemInfo[] = [];
             
             noteNames.forEach(noteName => {
+                // 이미 멘션된 파일인지 확인 (중복 방지 - 이름과 타입으로 구분)
+                // 타입을 알 수 없으므로 우선 note 타입으로 체크하고, 실제 찾은 타입으로 다시 체크
+                
                 // 1. 먼저 현재 열린 탭에서 찾기
                 const openTabs = this.getOpenTabs();
                 const openTab = openTabs.find(tab => tab.name === noteName);
                 
                 if (openTab) {
-                    mentionedItemInfo.push({
-                        name: noteName,
-                        path: openTab.path,
-                        type: openTab.type,
-                        url: openTab.url
-                    });
+                    // 이미 같은 이름과 타입의 파일이 있는지 확인
+                    const alreadyMentioned = this.mentionedNotesInfo.find(item => 
+                        item.name === noteName && item.type === openTab.type
+                    );
+                    if (!alreadyMentioned) {
+                        mentionedItemInfo.push({
+                            name: noteName,
+                            path: openTab.path,
+                            type: openTab.type,
+                            url: openTab.url
+                        });
+                    }
                 } else {
-                    // 2. 전체 vault에서 파일 찾기
-                    const files = this.app.vault.getMarkdownFiles();
-                    const matchingFile = files.find(file => file.basename === noteName);
+                    // 2. 전체 vault에서 파일 찾기 (모든 파일 타입)
+                    let foundFile = false;
+                    
+                    // 2-1. 마크다운 파일 검색
+                    const markdownFiles = this.app.vault.getMarkdownFiles();
+                    const matchingMarkdown = markdownFiles.find(file => file.basename === noteName);
+                    
+                    if (matchingMarkdown) {
+                        const alreadyMentioned = this.mentionedNotesInfo.find(item => 
+                            item.name === noteName && item.type === 'note'
+                        );
+                        if (!alreadyMentioned) {
+                            mentionedItemInfo.push({
+                                name: noteName,
+                                path: matchingMarkdown.path,
+                                type: 'note'
+                            });
+                        }
+                        foundFile = true;
+                    }
+                    
+                    // 2-2. 모든 파일 검색 (PDF 포함) - 마크다운과 별도로 처리
+                    const allFiles = this.app.vault.getFiles();
+                    const matchingFile = allFiles.find(file => file.basename === noteName && file.extension === 'pdf');
                     
                     if (matchingFile) {
-                        mentionedItemInfo.push({
-                            name: noteName,
-                            path: matchingFile.path,
-                            type: 'note'
-                        });
-                    } else {
-                        // 3. 파일을 찾을 수 없는 경우
-                        mentionedItemInfo.push({
-                            name: noteName,
-                            path: `${noteName}.md (파일을 찾을 수 없음)`,
-                            type: 'note'
-                        });
+                        const alreadyMentioned = this.mentionedNotesInfo.find(item => 
+                            item.name === noteName && item.type === 'pdf'
+                        );
+                        if (!alreadyMentioned) {
+                            // 파일 확장자로 타입 결정
+                            const fileType = matchingFile.extension === 'pdf' ? 'pdf' : 'note';
+                            const filePath = fileType === 'pdf' ? this.getFileAbsolutePath(matchingFile.path) : matchingFile.path;
+                            
+                            mentionedItemInfo.push({
+                                name: noteName,
+                                path: filePath,
+                                type: fileType
+                            });
+                        }
+                        foundFile = true;
+                    }
+                    
+                    // 3. 파일을 찾을 수 없는 경우
+                    if (!foundFile) {
+                        const alreadyMentioned = this.mentionedNotesInfo.find(item => 
+                            item.name === noteName && item.type === 'note'
+                        );
+                        if (!alreadyMentioned) {
+                            mentionedItemInfo.push({
+                                name: noteName,
+                                path: `${noteName}.md (파일을 찾을 수 없음)`,
+                                type: 'note'
+                            });
+                        }
                     }
                 }
             });
             
-            this.mentionedNotes = noteNames; // 기존 방식 유지 (호환성)
-            this.mentionedNotesInfo = mentionedItemInfo; // 새로운 상세 정보 (웹뷰 포함)
-        } else {
-            this.mentionedNotes = [];
-            this.mentionedNotesInfo = [];
+            // 기존 멘션된 파일들과 새로 찾은 파일들을 합치기
+            const allNoteNames = [...new Set([...this.mentionedNotes, ...noteNames])]; // 중복 제거
+            this.mentionedNotes = allNoteNames;
+            this.mentionedNotesInfo = [...this.mentionedNotesInfo, ...mentionedItemInfo]; // 기존 것과 합치기
         }
+        // mentions.length === 0일 때는 기존 멘션 정보를 유지 (지우지 않음)
     }
 
     // 워크스페이스 상태 진단 메서드 (디버깅용)
@@ -1258,7 +1383,7 @@ export class ChatbotView extends ItemView {
                 if (file) {
                     webviews.push({
                         name: file.basename,
-                        path: file.path,
+                        path: this.getFileAbsolutePath(file.path),
                         type: 'pdf'
                     });
                 }
@@ -1354,5 +1479,168 @@ export class ChatbotView extends ItemView {
         }
         
         return undefined;
+    }
+
+    // Vault의 절대 경로를 얻는 메서드
+    private getVaultAbsolutePath(): string {
+        try {
+            if (this.app && this.app.vault) {
+                // vault adapter의 basePath 사용 (절대 경로)
+                const basePath = (this.app.vault.adapter as any)?.basePath;
+                if (basePath) {
+                    return basePath;
+                }
+            }
+            
+            // 폴백: 빈 문자열 반환
+            return '';
+        } catch (error) {
+            console.error('Error getting vault absolute path:', error);
+            return '';
+        }
+    }
+
+    // 파일의 절대 경로를 생성하는 메서드
+    private getFileAbsolutePath(relativePath: string): string {
+        try {
+            const vaultPath = this.getVaultAbsolutePath();
+            if (vaultPath && relativePath) {
+                const path = require('path');
+                return path.join(vaultPath, relativePath);
+            }
+            return relativePath; // 절대 경로를 얻을 수 없으면 상대 경로 그대로 반환
+        } catch (error) {
+            console.error('Error creating absolute path:', error);
+            return relativePath;
+        }
+    }
+
+    // 멘션된 아이템들에서 노트 정보를 추출
+    private extractMentionedItemInfos(mentions: string[]): MentionedItemInfo[] {
+        const itemInfos: MentionedItemInfo[] = [];
+        
+        mentions.forEach(mention => {
+            const noteName = mention.startsWith('@') ? mention.slice(1) : mention;
+            
+            // 1. 먼저 현재 열린 탭에서 찾기
+            const openTabs = this.getOpenTabs();
+            const openTab = openTabs.find(tab => tab.name === noteName);
+            
+            if (openTab) {
+                itemInfos.push({
+                    name: noteName,
+                    path: openTab.path,
+                    type: openTab.type,
+                    url: openTab.url
+                });
+            } else {
+                // 2. 전체 vault에서 파일 찾기
+                const files = this.app.vault.getMarkdownFiles();
+                const matchingFile = files.find(file => file.basename === noteName);
+                
+                if (matchingFile) {
+                    itemInfos.push({
+                        name: noteName,
+                        path: matchingFile.path,
+                        type: 'note'
+                    });
+                } else {
+                    // 3. 파일을 찾을 수 없는 경우
+                    itemInfos.push({
+                        name: noteName,
+                        path: `${noteName}.md (파일을 찾을 수 없음)`,
+                        type: 'note'
+                    });
+                }
+            }
+        });
+        
+        return itemInfos;
+    }
+
+    // 멘션된 파일들 표시 UI 업데이트
+    private updateMentionedFilesDisplay() {
+        if (!this.mentionedFilesContainer) return;
+        
+        // 컨테이너 초기화
+        this.mentionedFilesContainer.empty();
+        
+        if (this.mentionedNotesInfo.length === 0) {
+            // 멘션된 파일이 없으면 숨기기
+            this.mentionedFilesContainer.style.display = 'none';
+            return;
+        }
+        
+        // 멘션된 파일이 있으면 표시
+        this.mentionedFilesContainer.style.display = 'block';
+        
+        // 파일 목록 컨테이너 (헤더 제거)
+        const filesContainer = this.mentionedFilesContainer.createEl('div', {
+            cls: 'chatbot-mentioned-files-list'
+        });
+        
+        // 각 멘션된 파일에 대한 태그 생성
+        this.mentionedNotesInfo.forEach((item, index) => {
+            const fileTag = filesContainer.createEl('div', {
+                cls: 'chatbot-mentioned-file-tag'
+            });
+            
+            // 파일 타입 아이콘
+            let icon = '📝'; // 기본값: 노트
+            if (item.type === 'webview') {
+                icon = '🌐';
+            } else if (item.type === 'pdf') {
+                icon = '📄';
+            }
+            
+            // 아이콘과 파일명 (확장자 포함)
+            const displayName = item.type === 'pdf' ? `${item.name}.pdf` : 
+                               item.type === 'note' ? `${item.name}.md` : item.name;
+            const fileInfo = fileTag.createEl('span', {
+                cls: 'chatbot-mentioned-file-info',
+                text: `${icon} ${displayName}`
+            });
+            
+            // 삭제 버튼
+            const removeBtn = fileTag.createEl('button', {
+                cls: 'chatbot-mentioned-file-remove',
+                text: '×',
+                attr: { title: '첨부 해제' }
+            });
+            
+            // 삭제 버튼 클릭 이벤트
+            removeBtn.addEventListener('click', () => {
+                this.removeMentionedFile(index);
+            });
+        });
+    }
+    
+    // 멘션된 파일 제거
+    private removeMentionedFile(index: number) {
+        if (index >= 0 && index < this.mentionedNotesInfo.length) {
+            // 배열에서 제거
+            this.mentionedNotes.splice(index, 1);
+            this.mentionedNotesInfo.splice(index, 1);
+            
+            // UI 업데이트
+            this.updateMentionedFilesDisplay();
+        }
+    }
+    
+    // 모든 멘션된 파일 제거
+    private clearAllMentionedFiles() {
+        this.mentionedNotes = [];
+        this.mentionedNotesInfo = [];
+        this.updateMentionedFilesDisplay();
+    }
+
+    // 메시지에서 @ 멘션 제거 (environment context로만 전달)
+    private removeMentionsFromMessage(message: string): string {
+        // @ 멘션 패턴 제거
+        return message
+            .replace(/@([^@]+?)(?=\s@|$)/g, '') // 멘션 패턴 제거
+            .replace(/@([^\s]+)/g, '') // 간단한 멘션도 제거
+            .replace(/\s+/g, ' ') // 연속된 공백을 하나로
+            .trim(); // 앞뒤 공백 제거
     }
 }

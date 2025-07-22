@@ -15,6 +15,7 @@ export interface PlanStep {
     purpose: string;
     reasoning: string;
     expectedOutput: string;
+    // arguments는 실행 시점에 결정됨
 }
 
 export interface ExecutionPlan {
@@ -104,9 +105,20 @@ ${toolsDescription}
 2. 어떤 도구들을 사용하여 어떤 결과를 얻고, 그 결과들을 어떻게 조합하여 사용자에게 최적의 답변을 제공할지 계획하세요.
 3. 필요한 도구들을 선택하고 논리적인 실행 순서를 결정하세요.
 4. 각 단계의 목적과 이유를 명확히 하세요.
-5. 최종 응답에서 각 도구의 결과를 어떻게 활용할지 고려하세요.
+5. **각 도구에 전달할 구체적이고 정확한 인자(arguments)를 미리 완전히 결정하세요.**
+6. 최종 응답에서 각 도구의 결과를 어떻게 활용할지 고려하세요.
+7. 이전 단계의 예상 결과를 바탕으로 다음 단계의 매개변수를 결정하세요.
 
-**중요한 규칙:**
+**매개변수 결정 시 필수 규칙:**
+- **매개변수는 실행 시점에 이전 단계의 결과를 바탕으로 동적으로 결정됩니다.**
+- **각 도구의 파라미터 스키마를 정확히 준수해야 합니다.**
+- **필수 매개변수(required)는 반드시 포함하고, 올바른 데이터 타입을 사용하세요.**
+- **이전 단계의 결과에 의존하는 경우, 해당 결과를 적절히 활용하세요.**
+- **파일 경로가 필요한 경우 환경 컨텍스트를 참고하여 정확한 경로를 제공하세요.**
+
+**일반 규칙:**
+- **toolName은 반드시 위의 '사용 가능한 도구들' 목록에서만 선택해야 합니다.**
+- **존재하지 않는 도구 이름이나 "None", "null" 등은 절대 사용하지 마세요.**
 - 각 도구는 명확한 목적이 있어야 합니다.
 - 이전 단계의 결과가 다음 단계에 영향을 줄 수 있습니다.
 - 불필요한 도구 사용은 피하세요.
@@ -142,7 +154,8 @@ ${toolsDescription}
                                     },
                                     toolName: {
                                         type: Type.STRING,
-                                        description: "사용할 도구 이름"
+                                        description: "사용할 도구 이름 (반드시 사용 가능한 도구 목록에서 선택)",
+                                        enum: this.availableTools.map(tool => tool.name)
                                     },
                                     purpose: {
                                         type: Type.STRING,
@@ -177,9 +190,18 @@ ${toolsDescription}
         }
         
         // 도구 이름 검증
+        console.log("🔧 사용 가능한 도구들:", this.availableTools.map(t => t.name).join(', '));
         for (const step of planData.steps) {
+            if (!step.toolName || step.toolName.trim() === '' || step.toolName === 'None' || step.toolName === 'null') {
+                console.error(`❌ 잘못된 도구 이름: "${step.toolName}"`);
+                console.error(`📋 계획된 단계들:`, planData.steps.map((s: any) => `${s.stepNumber}: ${s.toolName}`));
+                throw new Error(`Invalid tool name: ${step.toolName}`);
+            }
+            
             const tool = this.availableTools.find(t => t.name === step.toolName);
             if (!tool) {
+                console.error(`❌ 알 수 없는 도구 이름: "${step.toolName}"`);
+                console.error(`📋 계획된 단계들:`, planData.steps.map((s: any) => `${s.stepNumber}: ${s.toolName}`));
                 throw new Error(`Unknown tool: ${step.toolName}`);
             }
         }
@@ -188,9 +210,22 @@ ${toolsDescription}
         console.log("   목표:", planData.overallGoal);
         console.log("   계획:", planData.plan);
         console.log("   단계 수:", planData.steps.length);
+        console.log(""); // 빈 줄 추가
         
         planData.steps.forEach((step: PlanStep) => {
-            console.log(`   ${step.stepNumber}. ${step.toolName} - ${step.purpose}`);
+            console.log(`📍 단계 ${step.stepNumber}: ${step.toolName}`);
+            console.log(`   목적: ${step.purpose}`);
+            console.log(`   이유: ${step.reasoning}`);
+            console.log(`   예상 출력: ${step.expectedOutput}`);
+            console.log(`   💡 매개변수는 실행 시점에 동적으로 결정됩니다`);
+            
+            // 도구 정보 표시
+            const tool = this.getToolInfo(step.toolName);
+            if (tool && tool.parameters) {
+                const required = tool.parameters.required || [];
+                console.log(`   📋 필수 매개변수: ${required.join(', ') || '없음'}`);
+            }
+            console.log(""); // 단계 간 구분을 위한 빈 줄
         });
 
         return planData as ExecutionPlan;
