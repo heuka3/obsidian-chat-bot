@@ -604,10 +604,43 @@ ${mentionedItems.length > 0 ? `- 사용자가 언급한 항목: ${mentionedItems
             // 1단계: 계획 수립
             progressCallback({ status: "계획 수립 중..." });
             
-            // Environment context 생성
-            const environmentContext = mentionedItems.map(item => {
-                return `[${item.type || 'note'}] ${item.name}: ${item.path}`;
-            }).join('\n');
+            // Obsidian vault 이름 추출
+            const vaultName = this.getVaultName();
+            
+            // 환경 정보 구성 (sendMessage 메서드와 동일한 방식)
+            const environmentContext = `=== OBSIDIAN 환경 정보 ===
+- Obsidian Vault: "${vaultName}"
+- 플러그인: AI Chatbot (Plan & Execute 모드)
+- 위치: Obsidian 내부 플러그인 환경
+${mentionedItems.length > 0 ? `- 사용자가 언급한 항목: ${mentionedItems.map(item => {
+    if (item.type === 'webview') {
+        return `"${item.name}" (웹뷰: ${item.url})`;
+    } else if (item.type === 'pdf') {
+        // PDF 파일의 경우 절대 경로를 생성하여 전달
+        const absolutePath = this.getFileAbsolutePath(item.path);
+        console.log(`📄 PDF 파일 경로 처리: 
+          - 파일명: ${item.name}
+          - 원본 경로: ${item.path}
+          - 절대 경로: ${absolutePath}
+          - 한글 포함: ${/[ㄱ-ㅎ|ㅏ-ㅣ|가-힣]/.test(item.name)}
+          - 공백 포함: ${/\s/.test(item.name)}`);
+        return `"${item.name}" (PDF 파일: ${item.path}, 절대경로: ${absolutePath})`;
+    } else {
+        return `"${item.name}" (경로: ${item.path})`;
+    }
+}).join(', ')}` : ''}
+
+**중요 컨텍스트:**
+- 당신은 Obsidian vault "${vaultName}" 내에서 작동하고 있습니다.
+- 파일 경로나 vault 관련 작업을 수행할 때는 현재 vault 이름을 고려하세요.
+- 사용자가 vault나 노트에 대한 질문을 할 때는 현재 "${vaultName}" vault 컨텍스트에서 답변하세요.
+- 사용자가 웹뷰를 언급한 경우, 해당 웹사이트의 내용을 참고하여 답변하세요.
+- 사용자가 PDF 파일을 언급한 경우, 절대경로를 통해 해당 PDF 파일에 접근할 수 있습니다.
+- **PDF 파일 경로 처리 시 주의사항:**
+  * 위에 제공된 절대경로는 한글 파일명을 포함하여 정확한 전체 경로입니다
+  * PDF 도구 호출 시 절대경로를 정확히 그대로 사용해야 합니다
+  * 한글, 공백, 특수문자가 포함된 파일명도 절대경로 그대로 전달하세요
+===============================`;
             
             const executionPlan = await this.planToolSelectService.createExecutionPlan(
                 lastUserMsg.content, 

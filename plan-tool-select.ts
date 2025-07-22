@@ -53,7 +53,7 @@ export class PlanToolSelectService {
         // Google Search 도구 추가
         this.availableTools.push({
             name: "google_search",
-            description: "Search the web using Google to find current information, news, articles, and general knowledge about any topic. This tool provides search results with relevant URLs and content snippets. Note: This tool provides initial search results and URLs. For deeper analysis or to retrieve full content from specific websites, it is recommended to use other available tools that can fetch detailed information from the URLs this tool provides.",
+            description: "Search the web using Google to find current information, news, articles, and general knowledge about any topic. This tool provides search results with relevant URLs and content snippets. For deeper analysis or to retrieve full content from specific websites, it is strongly recommended to use other available tools additionally so that they can fetch detailed information from the URLs this tool provides.",
             parameters: {
                 type: "object",
                 properties: {
@@ -125,7 +125,7 @@ ${toolsDescription}
 - 도구 없이 답변할 수 있다면 빈 steps 배열을 반환하세요.
 - 사용자의 의도를 정확히 파악하여 관련 있는 도구만 사용하세요.
 `;
-
+        console.log("🔍 계획 수립을 위한 프롬프트:", prompt);
         const response = await this.genAI.models.generateContent({
             model: "gemini-2.5-flash",
             contents: prompt,
