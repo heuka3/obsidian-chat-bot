@@ -53,7 +53,7 @@ export class PlanToolSelectService {
         // Google Search 도구 추가
         this.availableTools.push({
             name: "google_search",
-            description: "Search the web using Google to find current information, news, articles, and general knowledge about any topic. This tool provides search results with relevant URLs and content snippets.",
+            description: "Search the web using Google to find current information, news, articles, and general knowledge about any topic. This tool provides search results with relevant URLs and content snippets. Note: This tool provides initial search results and URLs. For deeper analysis or to retrieve full content from specific websites, it is recommended to use other available tools that can fetch detailed information from the URLs this tool provides.",
             parameters: {
                 type: "object",
                 properties: {

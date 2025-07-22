@@ -1,4 +1,4 @@
-import { ChatMessage, MCPServer } from "./types";
+import { ChatMessage, MCPServer, PlanProgressData } from "./types";
 import { GoogleGenAI, Type, FunctionCallingConfigMode } from "@google/genai";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
@@ -564,6 +564,104 @@ ${mentionedItems.length > 0 ? `- 사용자가 언급한 항목: ${mentionedItems
         // 기존 Function Calling 모드
         console.log("🔧 기존 Function Calling 모드로 실행");
         return await this.sendMessageLegacy(model, mentionedItems, conversationContext);
+    }
+
+    /**
+     * Plan & Execute 모드에서 진행 상황을 콜백으로 알려주면서 메시지 전송
+     */
+    async sendMessageWithProgress(
+        model: string = 'gemini-2.5-flash', 
+        mentionedItems: Array<{name: string, path: string, type?: 'note' | 'webview' | 'pdf', url?: string}> = [],
+        progressCallback: (data: PlanProgressData) => void
+    ): Promise<string> {
+        if (!this.isConfigured()) {
+            throw new Error('Gemini API key가 설정되지 않았습니다.');
+        }
+
+        // 최근 user/assistant 메시지 10쌍(21개) 추출
+        const filtered = this.conversationHistory.filter(m => m.role === 'user' || m.role === 'assistant');
+        const latest_context = filtered.slice(-21);
+
+        // 가장 최근 user 메시지 추출
+        if (latest_context.length === 0) throw new Error("No user message found.");
+        const lastUserMsgRealIdx = latest_context.length - 1;
+        const lastUserMsg = latest_context[lastUserMsgRealIdx];
+
+        // instruction용 대화 맥락
+        const contextForInstruction = latest_context.slice(0, lastUserMsgRealIdx);
+        const conversationContext = contextForInstruction.map(m => 
+            `${m.role === 'user' ? 'User' : 'Assistant'}: ${m.content}`
+        ).join('\n');
+
+        // Plan & Execute 모드만 지원
+        if (!this.usePlanExecute || !this.planToolSelectService || !this.planExecutionService) {
+            throw new Error("Plan & Execute 모드가 활성화되지 않았습니다.");
+        }
+
+        console.log("🎯 Plan & Execute 모드로 실행 (진행 상황 추적)");
+        
+        try {
+            // 1단계: 계획 수립
+            progressCallback({ status: "계획 수립 중..." });
+            
+            // Environment context 생성
+            const environmentContext = mentionedItems.map(item => {
+                return `[${item.type || 'note'}] ${item.name}: ${item.path}`;
+            }).join('\n');
+            
+            const executionPlan = await this.planToolSelectService.createExecutionPlan(
+                lastUserMsg.content, 
+                conversationContext, 
+                environmentContext
+            );
+            
+            if (executionPlan && executionPlan.steps && executionPlan.steps.length > 0) {
+                const planSteps = executionPlan.steps.map(step => 
+                    `${step.stepNumber}. ${step.purpose} (도구: ${step.toolName})`
+                );
+                
+                progressCallback({ 
+                    status: "계획 수립 완료",
+                    plan: planSteps,
+                    totalSteps: executionPlan.steps.length,
+                    currentStep: 0
+                });
+
+                // 2단계: 계획 실행
+                const result = await this.planExecutionService.executePlan(
+                    lastUserMsg.content,
+                    executionPlan, 
+                    conversationContext, 
+                    environmentContext,
+                    (stepProgress: PlanProgressData) => {
+                        // 계획 정보를 포함하여 전달
+                        progressCallback({
+                            ...stepProgress,
+                            plan: planSteps,
+                            totalSteps: executionPlan.steps.length
+                        });
+                    }
+                );
+                
+                progressCallback({ 
+                    status: "완료",
+                    plan: planSteps,
+                    currentStep: executionPlan.steps.length,
+                    totalSteps: executionPlan.steps.length
+                });
+
+                return result;
+            } else {
+                // 계획 수립 실패 시 기존 모드로 폴백
+                progressCallback({ status: "계획 수립 실패, 기본 모드로 전환..." });
+                return await this.sendMessageLegacy(model, mentionedItems, conversationContext);
+            }
+        } catch (error) {
+            console.error("Plan & Execute 모드 실행 중 오류:", error);
+            progressCallback({ status: "오류 발생, 기본 모드로 전환..." });
+            // 오류 발생 시 기존 모드로 폴백
+            return await this.sendMessageLegacy(model, mentionedItems, conversationContext);
+        }
     }
 
     /**

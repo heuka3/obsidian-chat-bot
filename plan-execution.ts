@@ -2,6 +2,7 @@ import { GoogleGenAI, Type } from "@google/genai";
 import { ExecutionPlan, PlanStep, PlanToolSelectService } from "./plan-tool-select";
 import { GeminiService } from "./gemini-service";
 import { GoogleSearchService } from "./google-search";
+import { PlanProgressData } from "./types";
 
 interface ToolCallResult {
     stepNumber: number;
@@ -37,7 +38,8 @@ export class PlanExecutionService {
         userQuery: string,
         plan: ExecutionPlan,
         conversationContext: string = "",
-        environmentContext: string = ""
+        environmentContext: string = "",
+        progressCallback?: (data: PlanProgressData) => void
     ): Promise<string> {
         console.log("🚀 계획 실행 시작:", plan.overallGoal);
         console.log("📋 실행 계획:", plan.plan);
@@ -45,8 +47,20 @@ export class PlanExecutionService {
         const toolResults: ToolCallResult[] = [];
         
         // 단계별로 실행
-        for (const step of plan.steps) {
+        for (let i = 0; i < plan.steps.length; i++) {
+            const step = plan.steps[i];
             const startTime = Date.now();
+            
+            // 현재 단계 진행 상황 업데이트
+            if (progressCallback) {
+                progressCallback({
+                    status: `단계 ${step.stepNumber}/${plan.steps.length} 실행 중`,
+                    currentStep: i,
+                    totalSteps: plan.steps.length,
+                    currentStepDescription: `${step.purpose}`,
+                    toolUsed: `🔧 ${step.toolName} 도구 사용 중...`
+                });
+            }
             
             try {
                 console.log(`📋 단계 ${step.stepNumber} 실행 중: ${step.toolName}`);
@@ -82,6 +96,22 @@ export class PlanExecutionService {
                     executionTime: Date.now() - startTime
                 });
                 
+                // 도구 실행 완료 상황 업데이트
+                if (progressCallback) {
+                    const shortResult = typeof toolOutput === 'string' ? 
+                        (toolOutput.length > 200 ? toolOutput.substring(0, 200) + '...' : toolOutput) :
+                        JSON.stringify(toolOutput).substring(0, 200) + '...';
+                    
+                    progressCallback({
+                        status: `단계 ${step.stepNumber}/${plan.steps.length} 완료`,
+                        currentStep: i + 1,
+                        totalSteps: plan.steps.length,
+                        currentStepDescription: `✅ ${step.purpose} 완료`,
+                        toolUsed: `${step.toolName}`,
+                        toolResult: shortResult
+                    });
+                }
+                
                 console.log(`✅ 단계 ${step.stepNumber} 완료 (${Date.now() - startTime}ms)`);
                 
             } catch (error) {
@@ -96,6 +126,17 @@ export class PlanExecutionService {
                     error: error instanceof Error ? error.message : "Unknown error",
                     executionTime: Date.now() - startTime
                 });
+                
+                // 실패 상황 업데이트
+                if (progressCallback) {
+                    progressCallback({
+                        status: `단계 ${step.stepNumber} 실패`,
+                        currentStep: i,
+                        totalSteps: plan.steps.length,
+                        currentStepDescription: `❌ ${step.purpose} 실패: ${error instanceof Error ? error.message : "Unknown error"}`,
+                        toolUsed: `${step.toolName} (실패)`
+                    });
+                }
                 
                 // 도구 호출 실패 시 즉시 계획 실행 중단
                 console.log(`🚨 도구 호출 실패로 인해 계획 실행 중단`);
@@ -186,7 +227,10 @@ export class PlanExecutionService {
         const prompt = `
 당신은 AI 어시스턴트입니다. 사용자의 질문에 대해 계획을 세우고 도구들을 사용한 결과를 바탕으로 최종 응답을 생성해야 합니다.
 
-${environmentContext ? `${environmentContext}\n` : ''}**사용자 질문:** ${userQuery}
+**사용자 질문:** ${userQuery}
+
+**환경 컨텍스트 정보:**
+${environmentContext || '환경 정보 없음'}
 
 **대화 맥락:** ${conversationContext || '없음'}
 
@@ -203,13 +247,15 @@ ${failuresText}
 ${plan.finalResponseGuidance}
 
 **지침:**
-1. 도구 실행 결과를 종합하여 사용자의 질문에 명확하고 도움이 되는 답변을 제공하세요.
-2. 실패한 도구가 있다면 그 한계를 인정하되, 가능한 정보로 최선의 답변을 제공하세요.
-3. 답변은 자연스럽고 이해하기 쉬워야 합니다.
-4. 필요하다면 추가 정보나 다음 단계를 제안하세요.
-5. 실행 과정에서 얻은 구체적인 정보를 활용하세요.
-6. 도구 실행의 기술적 세부사항은 숨기고, 사용자에게 유용한 정보만 제공하세요.
-7. 도구 호출이 중단된 경우, 부분적인 결과라도 최대한 활용하여 답변하세요.
+1. 환경 컨텍스트에서 제공된 실제 파일명, 경로, vault 정보를 정확히 활용하세요.
+2. 도구 실행 결과를 종합하여 사용자의 질문에 명확하고 도움이 되는 답변을 제공하세요.
+3. 실패한 도구가 있다면 그 한계를 인정하되, 가능한 정보로 최선의 답변을 제공하세요.
+4. 답변은 자연스럽고 이해하기 쉬워야 합니다.
+5. 필요하다면 추가 정보나 다음 단계를 제안하세요.
+6. 실행 과정에서 얻은 구체적인 정보를 활용하세요.
+7. 도구 실행의 기술적 세부사항은 숨기고, 사용자에게 유용한 정보만 제공하세요.
+8. 도구 호출이 중단된 경우, 부분적인 결과라도 최대한 활용하여 답변하세요.
+9. 파일명이나 경로를 언급할 때는 환경 컨텍스트에서 제공된 정확한 이름을 사용하세요.
 
 사용자에게 친절하고 도움이 되는 응답을 생성하세요:
 `;
@@ -252,7 +298,10 @@ ${plan.finalResponseGuidance}
         const prompt = `
 당신은 AI 어시스턴트의 도구 호출 매개변수 결정 전문가입니다. 주어진 계획과 이전 결과를 바탕으로 현재 단계의 도구에 전달할 정확한 매개변수를 결정해야 합니다.
 
-${environmentContext ? `${environmentContext}\n` : ''}**사용자 질문:** ${userQuery}
+**사용자 질문:** ${userQuery}
+
+**환경 컨텍스트 정보:**
+${environmentContext || '환경 정보 없음'}
 
 **대화 맥락:** ${conversationContext || '없음'}
 
@@ -276,31 +325,37 @@ ${toolParameters}
 ${previousResultsText}
 
 **매개변수 결정 지침:**
-1. 현재 단계의 목적을 달성하기 위한 도구 호출 매개변수를 정확히 결정하세요.
-2. 이전 단계의 성공 결과를 적절히 활용하세요 (특히 파일 내용, 검색 결과 등).
-3. 도구의 스키마에 정의된 매개변수만 사용하세요.
-4. 필수 매개변수(required)는 반드시 포함하세요.
-5. 매개변수 값은 구체적이고 실행 가능해야 합니다.
-6. 파일 편집의 경우 이전에 읽은 내용을 바탕으로 content를 구성하세요.
-7. 매개변수 타입(string, number, boolean 등)을 정확히 지켜주세요.
-8. **PDF 파일 처리 시 매우 중요:**
-   - 환경 컨텍스트에서 "절대경로: /full/path/to/file.pdf" 형태로 제공된 절대경로를 반드시 사용하세요
-   - PDF 파일은 상대경로가 아닌 절대경로로만 접근 가능합니다
-   - 예: path 매개변수에 "/Users/username/Documents/vault/file.pdf" 같은 전체 경로 사용
-   - **한글 파일명 처리 규칙:**
-     * 한글이 포함된 파일명(예: "한글문서.pdf")도 환경 컨텍스트에서 제공된 절대경로를 정확히 그대로 사용하세요
-     * 파일 경로에 한글, 공백, 특수문자가 있어도 환경 컨텍스트의 경로를 수정하지 말고 그대로 전달하세요
-     * 예: "/Users/username/Documents/vault/한글 파일명.pdf" → 그대로 사용
-     * URL 인코딩이나 다른 변환을 하지 마세요
-9. **노트 파일의 경우:** vault 상대경로 (예: "folder/note.md") 또는 절대경로 모두 가능합니다.
-10. **파일 경로 결정 우선순위:**
-    - PDF: 환경 컨텍스트의 절대경로 사용 (필수, 한글 파일명 포함)
-    - 노트: vault 컨텍스트를 고려한 상대경로 또는 절대경로
+1. **환경 컨텍스트 정보를 정확히 활용하세요:**
+   - 파일 경로는 환경 컨텍스트에서 제공된 정확한 경로를 사용하세요
+   - "절대경로: /path/to/file" 형식으로 제공된 경로를 그대로 사용하세요
+   - 파일명, 폴더명, 경로를 추측하거나 임의로 변경하지 마세요
+   - vault 이름, 사용자명 등을 추측하지 말고 환경 컨텍스트에서 제공된 정보만 사용하세요
 
-다음 JSON 형식으로 응답하세요:
+2. **JSON 응답 구조 최적화 - 매우 중요:**
+   - 짧은 매개변수(path, filename, query 등)를 먼저 배치하세요
+   - 긴 매개변수(content, body, text 등)는 마지막에 배치하세요
+   - 이는 JSON 응답 길이 제한으로 인한 매개변수 손실을 방지합니다
+
+3. 현재 단계의 목적을 달성하기 위한 도구 호출 매개변수를 정확히 결정하세요.
+4. 이전 단계의 성공 결과를 적절히 활용하세요 (특히 파일 내용, 검색 결과 등).
+5. 도구의 스키마에 정의된 매개변수만 사용하세요.
+6. 필수 매개변수(required)는 반드시 포함하세요.
+7. 매개변수 값은 구체적이고 실행 가능해야 합니다.
+8. 매개변수 타입(string, number, boolean 등)을 정확히 지켜주세요.
+
+**파일 경로 처리 규칙:**
+- PDF/이미지/기타 파일: 환경 컨텍스트의 절대경로를 정확히 사용
+- 노트 파일: 환경 컨텍스트에서 제공된 경로 정보를 우선 사용
+- 한글, 공백, 특수문자가 포함된 파일명도 환경 컨텍스트의 경로를 그대로 사용
+- 경로를 인코딩하거나 변경하지 마세요
+
+다음 JSON 형식으로 응답하세요 (짧은 매개변수부터 순서대로):
 {
   "toolName": "도구_이름",
-  "arguments": {매개변수_객체},
+  "arguments": {
+    // 짧은 매개변수들 먼저 (path, filename, query, mode 등)
+    // 긴 매개변수들 나중에 (content, body, text 등)
+  },
   "reasoning": "이 매개변수를 선택한 이유"
 }
 `;
@@ -322,7 +377,7 @@ ${previousResultsText}
                         },
                         reasoning: {
                             type: Type.STRING,
-                            description: "이 매개변수를 선택한 이유"
+                            description: "이 매개변수를 선택한 이유와 환경 컨텍스트 활용 방법"
                         }
                     },
                     required: ["toolName", "arguments", "reasoning"]

@@ -21,3 +21,13 @@ export interface ChatMessage {
     content: string;
     timestamp?: number;
 }
+
+export interface PlanProgressData {
+    status?: string;
+    plan?: string[];
+    currentStep?: number;
+    totalSteps?: number;
+    currentStepDescription?: string;
+    toolUsed?: string;
+    toolResult?: string;
+}

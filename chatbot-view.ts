@@ -1,6 +1,7 @@
 import { ItemView, WorkspaceLeaf, Notice, MarkdownRenderer } from "obsidian";
 import { OpenAIService, ChatMessage } from "./openai-service";
 import { GeminiService } from "./gemini-service";
+import { PlanProgressData } from "./types";
 
 export const VIEW_TYPE_CHATBOT = "chatbot-view";
 
@@ -28,6 +29,7 @@ export class ChatbotView extends ItemView {
     private currentMentionStart: number = -1; // '@' 시작 위치
     private updatePlanExecuteButtonState: () => void = () => {}; // Plan & Execute 버튼 상태 업데이트 함수
     private mentionedFilesContainer: HTMLElement | null = null; // 멘션된 파일들 표시 컨테이너
+    private planProgressContainer: HTMLElement | null = null; // Plan & Execute 진행 상황 컨테이너
 
     constructor(leaf: WorkspaceLeaf, plugin?: any) {
         super(leaf);
@@ -413,6 +415,163 @@ export class ChatbotView extends ItemView {
         this.updateMentionedFilesDisplay();
     }
 
+    // Plan & Execute 진행 상황을 표시하는 메서드들
+    private createPlanProgressMessage(messagesContainer: HTMLElement): HTMLElement {
+        const progressEl = messagesContainer.createEl("div");
+        
+        // 중요한 인라인 스타일로 가시성 보장
+        progressEl.style.cssText = `
+            background: #fff !important;
+            border: 2px solid #3498db !important;
+            margin: 15px 0 !important;
+            padding: 20px !important;
+            border-radius: 8px !important;
+            min-height: 100px !important;
+            z-index: 99999 !important;
+            position: relative !important;
+            display: block !important;
+            width: 100% !important;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1) !important;
+            overflow: visible !important;
+            color: #2c3e50 !important;
+            font-size: 14px !important;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif !important;
+            line-height: 1.4 !important;
+        `;
+
+        progressEl.addClass("chatbot-message");
+        progressEl.addClass("chatbot-message-assistant");
+        progressEl.addClass("plan-progress-message");
+
+        // 초기 상태 표시
+        progressEl.innerHTML = `
+            <div style="color: #2c3e50 !important; font-size: 16px !important; font-weight: bold !important; margin-bottom: 15px !important; display: flex !important; align-items: center !important;">
+                🧠 Plan & Execute 모드
+            </div>
+            <div style="color: #e67e22 !important; font-size: 14px !important; font-weight: 600 !important;">
+                🤔 계획 수립 중...
+            </div>
+        `;
+
+        // 스크롤을 맨 아래로
+        messagesContainer.scrollTop = messagesContainer.scrollHeight;
+        
+        return progressEl;
+    }
+
+    private updatePlanProgress(progressEl: HTMLElement, data: PlanProgressData) {
+        // 상태 업데이트 - 완전한 UI 구성
+        if (data.status) {
+            let content = `
+                <div style="color: #2c3e50 !important; font-size: 16px !important; font-weight: bold !important; margin-bottom: 15px !important; display: flex !important; align-items: center !important;">
+                    🧠 Plan & Execute 모드
+                </div>
+                <div style="color: #e67e22 !important; font-size: 14px !important; font-weight: 600 !important; margin-bottom: 15px !important;">
+                    ${data.status}
+                </div>
+            `;
+            
+            // 계획이 있으면 표시
+            if (data.plan && data.plan.length > 0) {
+                content += `
+                    <div style="margin-bottom: 20px !important;">
+                        <h4 style="color: #2c3e50 !important; font-size: 14px !important; font-weight: bold !important; margin-bottom: 10px !important; display: flex !important; align-items: center !important;">
+                            📋 실행 계획
+                        </h4>
+                        <ol style="color: #2c3e50 !important; font-size: 13px !important; padding-left: 20px !important; margin: 0 !important;">
+                `;
+                
+                data.plan.forEach((step, index) => {
+                    const isCompleted = index < (data.currentStep || 0);
+                    const isCurrent = index === (data.currentStep || 0);
+                    
+                    let stepStyle = '';
+                    let stepIcon = '';
+                    
+                    if (isCompleted) {
+                        stepStyle = 'color: #27ae60 !important; text-decoration: line-through !important;';
+                        stepIcon = '✅ ';
+                    } else if (isCurrent) {
+                        stepStyle = 'color: #3498db !important; font-weight: bold !important;';
+                        stepIcon = '🔄 ';
+                    } else {
+                        stepStyle = 'color: #7f8c8d !important;';
+                        stepIcon = '⏳ ';
+                    }
+                    
+                    content += `<li style="${stepStyle} margin-bottom: 6px !important; padding: 4px 0 !important;">${stepIcon}${step}</li>`;
+                });
+                
+                content += `</ol></div>`;
+            }
+            
+            // 현재 단계 설명
+            if (data.currentStepDescription) {
+                content += `
+                    <div style="margin-bottom: 20px !important;">
+                        <h4 style="color: #2c3e50 !important; font-size: 14px !important; font-weight: bold !important; margin-bottom: 10px !important; display: flex !important; align-items: center !important;">
+                            ⚡ 현재 진행 중
+                        </h4>
+                        <div style="color: #2980b9 !important; font-size: 13px !important; padding: 12px !important; background: #ecf0f1 !important; border-radius: 6px !important; border-left: 4px solid #3498db !important;">
+                            ${data.currentStepDescription}
+                        </div>
+                    </div>
+                `;
+            }
+            
+            // 도구 사용 정보
+            if (data.toolUsed) {
+                content += `
+                    <div style="margin-bottom: 20px !important;">
+                        <h4 style="color: #2c3e50 !important; font-size: 14px !important; font-weight: bold !important; margin-bottom: 10px !important; display: flex !important; align-items: center !important;">
+                            🔧 도구 사용 중
+                        </h4>
+                        <div style="color: #8e44ad !important; font-size: 12px !important; font-weight: 600 !important; background: #f8f9fa !important; padding: 8px !important; border-radius: 4px !important; border-left: 3px solid #8e44ad !important;">
+                            ${data.toolUsed}
+                        </div>
+                `;
+                
+                if (data.toolResult) {
+                    const shortResult = data.toolResult.length > 150 ? data.toolResult.substring(0, 150) + '...' : data.toolResult;
+                    content += `
+                        <div style="color: #6c757d !important; font-size: 11px !important; font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace !important; background: #f1f3f4 !important; padding: 8px !important; border-radius: 4px !important; margin-top: 8px !important; border: 1px solid #dee2e6 !important; white-space: pre-wrap !important;">
+                            ${shortResult}
+                        </div>
+                    `;
+                }
+                
+                content += `</div>`;
+            }
+            
+            // 진행 바
+            if (data.currentStep !== undefined && data.totalSteps !== undefined && data.totalSteps > 0) {
+                const percentage = Math.round((data.currentStep / data.totalSteps) * 100);
+                content += `
+                    <div style="margin-top: 20px !important;">
+                        <div style="display: flex !important; justify-content: space-between !important; align-items: center !important; margin-bottom: 8px !important;">
+                            <span style="font-size: 12px !important; color: #6c757d !important; font-weight: 600 !important;">진행 상황</span>
+                            <span style="font-size: 12px !important; color: #495057 !important; font-weight: bold !important;">${data.currentStep}/${data.totalSteps} 단계</span>
+                        </div>
+                        <div style="width: 100% !important; height: 8px !important; background: #e9ecef !important; border-radius: 4px !important; overflow: hidden !important; margin-bottom: 8px !important;">
+                            <div style="height: 100% !important; background: linear-gradient(90deg, #3498db, #27ae60) !important; border-radius: 4px !important; width: ${percentage}% !important; transition: width 0.5s ease !important;"></div>
+                        </div>
+                        <div style="font-size: 11px !important; color: #6c757d !important; text-align: center !important;">
+                            ${percentage}% 완료
+                        </div>
+                    </div>
+                `;
+            }
+            
+            progressEl.innerHTML = content;
+            
+            // 스크롤을 맨 아래로 유지
+            const messagesContainer = progressEl.parentElement;
+            if (messagesContainer) {
+                messagesContainer.scrollTop = messagesContainer.scrollHeight;
+            }
+        }
+    }
+
     // UI 요소들을 비활성화/활성화하는 메서드
     private setUIEnabled(enabled: boolean) {
         if (this.messageInput) {
@@ -445,8 +604,25 @@ export class ChatbotView extends ItemView {
                 return;
             }
 
-            // 로딩 메시지 표시
-            const loadingMessage = this.addMessage("assistant", "🤔 생각중...", messagesContainer);
+            // Plan & Execute 모드 여부 확인
+            const isPlanExecuteMode = this.currentProvider === 'gemini' && this.geminiService.isPlanExecuteMode();
+            console.log('🎯 Plan & Execute 모드 확인:', {
+                currentProvider: this.currentProvider,
+                isPlanExecuteMode: isPlanExecuteMode,
+                geminiServiceMode: this.geminiService.isPlanExecuteMode()
+            });
+            
+            // 로딩 메시지 또는 Plan & Execute 진행 상황 표시
+            let loadingMessage: HTMLElement;
+            if (isPlanExecuteMode) {
+                console.log('🎯 Plan & Execute 진행 상황 메시지 생성');
+                loadingMessage = this.createPlanProgressMessage(messagesContainer);
+                console.log('🎯 loadingMessage (Plan & Execute):', loadingMessage);
+            } else {
+                console.log('🎯 일반 로딩 메시지 생성');
+                loadingMessage = this.addMessage("assistant", "🤔 생각중...", messagesContainer);
+                console.log('🎯 loadingMessage (일반):', loadingMessage);
+            }
 
             try {
                 // 현재 설정된 모델 가져오기
@@ -459,7 +635,19 @@ export class ChatbotView extends ItemView {
                 let response: string;
                 if (this.currentProvider === 'gemini') {
                     console.log('🔍 Gemini로 전달하는 멘션 정보:', this.mentionedNotesInfo);
-                    response = await this.geminiService.sendMessage(model, this.mentionedNotesInfo);
+                    
+                    if (isPlanExecuteMode) {
+                        // Plan & Execute 모드에서는 진행 상황을 업데이트하면서 응답 받기
+                        response = await this.geminiService.sendMessageWithProgress(
+                            model, 
+                            this.mentionedNotesInfo,
+                            (progressData: PlanProgressData) => {
+                                this.updatePlanProgress(loadingMessage, progressData);
+                            }
+                        );
+                    } else {
+                        response = await this.geminiService.sendMessage(model, this.mentionedNotesInfo);
+                    }
                 } else {
                     response = await currentService.sendMessage(model);
                 }
