@@ -4,6 +4,14 @@ import { GeminiService } from "./gemini-service";
 
 export const VIEW_TYPE_CHATBOT = "chatbot-view";
 
+// 멘션된 아이템 정보 타입 확장
+interface MentionedItemInfo {
+    name: string;
+    path: string;
+    type?: 'note' | 'webview' | 'pdf';
+    url?: string;
+}
+
 export class ChatbotView extends ItemView {
     private openaiService: OpenAIService;
     private geminiService: GeminiService;
@@ -13,7 +21,7 @@ export class ChatbotView extends ItemView {
     private messageInput: HTMLTextAreaElement | null = null; // 입력 필드 참조
     private sendButton: HTMLButtonElement | null = null; // 전송 버튼 참조
     private mentionedNotes: string[] = []; // 언급된 노트들
-    private mentionedNotesInfo: Array<{name: string, path: string}> = []; // 언급된 노트들의 상세 정보
+    private mentionedNotesInfo: MentionedItemInfo[] = []; // 언급된 노트들의 상세 정보 (웹뷰 포함)
     private noteAutocomplete: HTMLElement | null = null; // 노트 자동완성 UI
     private selectedNoteIndex: number = -1; // 선택된 노트 인덱스
     private isShowingNoteAutocomplete: boolean = false; // 자동완성 표시 여부
@@ -767,7 +775,76 @@ export class ChatbotView extends ItemView {
         });
     }
 
-    // 최근 노트 가져오기
+    // 현재 열린 탭들 가져오기 (노트 + 웹뷰)
+    private getOpenTabs(limit: number = 10): Array<{name: string, path: string, type: 'note' | 'webview' | 'pdf', url?: string}> {
+        const openTabs: Array<{name: string, path: string, type: 'note' | 'webview' | 'pdf', url?: string}> = [];
+        
+        console.log('=== Starting webview detection ==='); // 디버깅용
+        
+        // 모든 워크스페이스 리프 확인
+        this.app.workspace.iterateAllLeaves((leaf) => {
+            const viewType = leaf.view.getViewType();
+            const view = leaf.view as any;
+            
+            console.log(`Analyzing leaf:`, {
+                viewType: viewType,
+                viewConstructorName: view.constructor.name,
+                hasUrl: !!view.url,
+                hasIframe: !!view.iframe,
+                hasWebviewElement: !!view.webviewEl,
+                hasContainer: !!view.containerEl,
+                keys: Object.keys(view).filter(k => k.includes('url') || k.includes('web') || k.includes('src'))
+            }); // Enhanced debugging
+            
+            if (viewType === 'markdown') {
+                // 마크다운 노트
+                const file = (view as any).file;
+                if (file) {
+                    openTabs.push({
+                        name: file.basename,
+                        path: file.path,
+                        type: 'note'
+                    });
+                }
+            } else if (viewType === 'pdf') {
+                // PDF 뷰
+                const file = (view as any).file;
+                if (file) {
+                    console.log(`Found PDF file: ${file.basename}`);
+                    openTabs.push({
+                        name: file.basename,
+                        path: file.path,
+                        type: 'pdf'
+                    });
+                }
+            } else {
+                // 웹뷰나 기타 뷰 타입은 별도 메서드에서 처리
+                // (이 섹션은 detectKnownWebviewTypes에서 처리됨)
+            }
+        });
+        
+        // 별도의 웹뷰 감지 로직 실행
+        const detectedWebviews = this.detectKnownWebviewTypes();
+        openTabs.push(...detectedWebviews);
+        
+        console.log('All found tabs:', openTabs); // 디버깅용
+        
+        // 웹뷰 감지 완료
+        const webviewCount = openTabs.filter(tab => tab.type === 'webview').length;
+        console.log(`Found ${webviewCount} webview tabs`); // 디버깅용
+        
+        // 중복 제거 및 제한
+        const uniqueTabs = openTabs.filter((tab, index, self) => 
+            index === self.findIndex(t => t.path === tab.path)
+        );
+        
+        console.log('Final unique tabs:', uniqueTabs); // 디버깅용
+        console.log('=== Webview detection complete ==='); // 디버깅용
+        
+        return uniqueTabs.slice(0, limit);
+    }
+
+    // 최근 노트 가져오기 (폴백용)
     private getRecentNotes(limit: number = 10): Array<{name: string, path: string}> {
         const files = this.app.vault.getMarkdownFiles();
         
@@ -780,34 +857,76 @@ export class ChatbotView extends ItemView {
         }));
     }
 
-    // 노트 검색
-    private searchNotes(query: string): Array<{name: string, path: string}> {
-        const files = this.app.vault.getMarkdownFiles();
-        const lowerQuery = query.toLowerCase();
+    // 노트 및 열린 탭 검색
+    private searchNotesAndTabs(query: string): Array<{name: string, path: string, type?: 'note' | 'webview' | 'pdf', url?: string}> {
+        console.log('searchNotesAndTabs called with query:', query); // 디버깅용
         
-        return files
-            .filter(file => file.basename.toLowerCase().includes(lowerQuery))
-            .slice(0, 10) // 최대 10개
+        const lowerQuery = query.toLowerCase();
+        const results: Array<{name: string, path: string, type?: 'note' | 'webview' | 'pdf', url?: string}> = [];
+        
+        // 1. 먼저 열린 탭들에서 검색
+        const openTabs = this.getOpenTabs();
+        console.log('searchNotesAndTabs - openTabs:', openTabs); // 디버깅용
+        
+        const matchingTabs = openTabs.filter(tab => 
+            tab.name.toLowerCase().includes(lowerQuery)
+        );
+        console.log('searchNotesAndTabs - matchingTabs:', matchingTabs); // 디버깅용
+        results.push(...matchingTabs);
+        
+        // 2. 전체 노트에서 검색 (열린 탭에 없는 것들만)
+        const files = this.app.vault.getMarkdownFiles();
+        const openNotePaths = openTabs.filter(tab => tab.type === 'note').map(tab => tab.path);
+        
+        const matchingFiles = files
+            .filter(file => 
+                file.basename.toLowerCase().includes(lowerQuery) &&
+                !openNotePaths.includes(file.path)
+            )
+            .slice(0, 5) // 열린 탭이 아닌 노트는 최대 5개까지만
             .map(file => ({
                 name: file.basename,
-                path: file.path
+                path: file.path,
+                type: 'note' as const
             }));
+        
+        results.push(...matchingFiles);
+        
+        console.log('searchNotesAndTabs - final results:', results); // 디버깅용
+        return results.slice(0, 10); // 전체 최대 10개
     }
 
-    // 노트 자동완성 표시
+    // 노트 자동완성 표시 (열린 탭 우선)
     private showNoteAutocomplete(query: string = '') {
+        console.log('showNoteAutocomplete called with query:', query); // 디버깅용
+        
         if (!this.messageInput) return;
         
         // 기존 자동완성 제거
         this.hideNoteAutocomplete();
         
-        // 노트 가져오기
-        const notes = query ? this.searchNotes(query) : this.getRecentNotes();
+        // 노트와 탭 가져오기
+        const items = query ? this.searchNotesAndTabs(query) : this.getOpenTabs();
+        console.log('showNoteAutocomplete - items:', items); // 디버깅용
         
-        if (notes.length === 0) {
-            this.hideNoteAutocomplete();
+        if (items.length === 0) {
+            // 폴백: 최근 노트 표시
+            const recentNotes = this.getRecentNotes();
+            console.log('showNoteAutocomplete - fallback recentNotes:', recentNotes); // 디버깅용
+            if (recentNotes.length === 0) {
+                this.hideNoteAutocomplete();
+                return;
+            }
+            this.showAutocompleteItems(recentNotes.map(note => ({...note, type: 'note' as const})), query);
             return;
         }
+        
+        this.showAutocompleteItems(items, query);
+    }
+
+    // 자동완성 아이템들을 실제로 표시하는 헬퍼 메서드
+    private showAutocompleteItems(items: Array<{name: string, path: string, type?: 'note' | 'webview' | 'pdf', url?: string}>, query: string) {
+        if (!this.messageInput) return;
         
         // 자동완성 컨테이너 생성
         const inputContainer = this.messageInput.parentElement;
@@ -817,41 +936,70 @@ export class ChatbotView extends ItemView {
             cls: 'chatbot-note-autocomplete'
         });
         
-        if (notes.length === 0) {
+        if (items.length === 0) {
             this.noteAutocomplete.createEl('div', {
                 cls: 'chatbot-note-autocomplete-empty',
-                text: query ? '검색 결과가 없습니다.' : '최근 노트가 없습니다.'
+                text: query ? '검색 결과가 없습니다.' : '열린 탭이 없습니다.'
             });
         } else {
-            notes.forEach((note, index) => {
-                const item = this.noteAutocomplete!.createEl('div', {
+            items.forEach((item, index) => {
+                const itemEl = this.noteAutocomplete!.createEl('div', {
                     cls: 'chatbot-note-autocomplete-item'
                 });
                 
-                if (index === this.selectedNoteIndex) {
-                    item.addClass('selected');
+                // 웹뷰 타입 표시를 위한 data 속성 추가
+                if (item.type === 'webview') {
+                    itemEl.setAttribute('data-type', 'webview');
+                } else if (item.type === 'pdf') {
+                    itemEl.setAttribute('data-type', 'pdf');
                 }
                 
-                item.createEl('span', {
+                if (index === this.selectedNoteIndex) {
+                    itemEl.addClass('selected');
+                }
+                
+                // 아이콘 설정 (노트/웹뷰/PDF)
+                let icon = '📝'; // 기본값: 노트
+                if (item.type === 'webview') {
+                    icon = '🌐';
+                } else if (item.type === 'pdf') {
+                    icon = '📄';
+                }
+                
+                itemEl.createEl('span', {
                     cls: 'chatbot-note-autocomplete-item-icon',
-                    text: '📝'
+                    text: icon
                 });
                 
-                item.createEl('span', {
+                itemEl.createEl('span', {
                     cls: 'chatbot-note-autocomplete-item-title',
-                    text: note.name
+                    text: item.name
                 });
                 
-                if (note.path !== note.name + '.md') {
-                    item.createEl('span', {
+                // 경로/URL 표시
+                if (item.type === 'webview' && item.url) {
+                    // 웹뷰의 경우 URL 표시
+                    itemEl.createEl('span', {
                         cls: 'chatbot-note-autocomplete-item-path',
-                        text: note.path
+                        text: item.url
+                    });
+                } else if (item.type === 'pdf') {
+                    // PDF의 경우 파일 경로 표시
+                    itemEl.createEl('span', {
+                        cls: 'chatbot-note-autocomplete-item-path',
+                        text: item.path
+                    });
+                } else if (item.type === 'note' && item.path !== item.name + '.md') {
+                    // 노트의 경우 파일 경로 표시 (기본 경로가 아닌 경우에만)
+                    itemEl.createEl('span', {
+                        cls: 'chatbot-note-autocomplete-item-path',
+                        text: item.path
                     });
                 }
                 
                 // 클릭 이벤트
-                item.addEventListener('click', () => {
-                    this.selectNote(note.name);
+                itemEl.addEventListener('click', () => {
+                    this.selectNote(item.name, item);
                 });
             });
         }
@@ -869,8 +1017,8 @@ export class ChatbotView extends ItemView {
         this.selectedNoteIndex = -1;
     }
 
-    // 노트 선택
-    private selectNote(noteName: string) {
+    // 노트 선택 (웹뷰 지원)
+    private selectNote(noteName: string, itemInfo?: {name: string, path: string, type?: 'note' | 'webview' | 'pdf', url?: string}) {
         if (!this.messageInput) return;
         
         const currentValue = this.messageInput.value;
@@ -887,9 +1035,22 @@ export class ChatbotView extends ItemView {
         const newCursorPos = beforeMention.length + noteName.length + 2; // @ + noteName + space
         this.messageInput.setSelectionRange(newCursorPos, newCursorPos);
         
-        // 언급된 노트 추가
+        // 언급된 노트/웹뷰 추가
         if (!this.mentionedNotes.includes(noteName)) {
             this.mentionedNotes.push(noteName);
+        }
+        
+        // 상세 정보 업데이트
+        if (itemInfo) {
+            const existingIndex = this.mentionedNotesInfo.findIndex(info => info.name === noteName);
+            if (existingIndex === -1) {
+                this.mentionedNotesInfo.push({
+                    name: noteName,
+                    path: itemInfo.path,
+                    type: itemInfo.type,
+                    url: itemInfo.url
+                });
+            }
         }
         
         this.hideNoteAutocomplete();
@@ -920,6 +1081,8 @@ export class ChatbotView extends ItemView {
                     const selectedItem = items[this.selectedNoteIndex];
                     const noteName = selectedItem.querySelector('.chatbot-note-autocomplete-item-title')?.textContent;
                     if (noteName) {
+                        // 아이템 정보를 다시 구성해야 함 (DOM에서 정보 추출)
+                        const isWebView = selectedItem.querySelector('.chatbot-note-autocomplete-item-icon')?.textContent === '🌐';
                         this.selectNote(noteName);
                     }
                 }
@@ -976,38 +1139,220 @@ export class ChatbotView extends ItemView {
         }
     }
 
-    // 메시지에서 언급된 노트 추출
+    // 메시지에서 언급된 노트/웹뷰 추출
     private extractMentionedNotes(message: string) {
         const mentions = message.match(/@([^\s]+)/g);
         if (mentions) {
             const noteNames = mentions.map(mention => mention.substring(1)); // '@' 제거
             
-            // 각 노트 이름에 해당하는 파일 찾기
-            const mentionedNoteInfo: Array<{name: string, path: string}> = [];
+            // 각 노트 이름에 해당하는 파일/웹뷰 찾기
+            const mentionedItemInfo: MentionedItemInfo[] = [];
             
             noteNames.forEach(noteName => {
-                const files = this.app.vault.getMarkdownFiles();
-                const matchingFile = files.find(file => file.basename === noteName);
+                // 1. 먼저 현재 열린 탭에서 찾기
+                const openTabs = this.getOpenTabs();
+                const openTab = openTabs.find(tab => tab.name === noteName);
                 
-                if (matchingFile) {
-                    mentionedNoteInfo.push({
+                if (openTab) {
+                    mentionedItemInfo.push({
                         name: noteName,
-                        path: matchingFile.path
+                        path: openTab.path,
+                        type: openTab.type,
+                        url: openTab.url
                     });
                 } else {
-                    // 파일을 찾을 수 없는 경우에도 정보 저장
-                    mentionedNoteInfo.push({
-                        name: noteName,
-                        path: `${noteName}.md (파일을 찾을 수 없음)`
-                    });
+                    // 2. 전체 vault에서 파일 찾기
+                    const files = this.app.vault.getMarkdownFiles();
+                    const matchingFile = files.find(file => file.basename === noteName);
+                    
+                    if (matchingFile) {
+                        mentionedItemInfo.push({
+                            name: noteName,
+                            path: matchingFile.path,
+                            type: 'note'
+                        });
+                    } else {
+                        // 3. 파일을 찾을 수 없는 경우
+                        mentionedItemInfo.push({
+                            name: noteName,
+                            path: `${noteName}.md (파일을 찾을 수 없음)`,
+                            type: 'note'
+                        });
+                    }
                 }
             });
             
             this.mentionedNotes = noteNames; // 기존 방식 유지 (호환성)
-            this.mentionedNotesInfo = mentionedNoteInfo; // 새로운 상세 정보
+            this.mentionedNotesInfo = mentionedItemInfo; // 새로운 상세 정보 (웹뷰 포함)
         } else {
             this.mentionedNotes = [];
             this.mentionedNotesInfo = [];
         }
+    }
+
+    // 워크스페이스 상태 진단 메서드 (디버깅용)
+    public diagnoseWebviews(): void {
+        console.log('=== Workspace Diagnosis ===');
+        
+        const allLeaves: any[] = [];
+        this.app.workspace.iterateAllLeaves((leaf) => {
+            allLeaves.push({
+                viewType: leaf.view.getViewType(),
+                constructorName: leaf.view.constructor.name,
+                view: leaf.view
+            });
+        });
+        
+        console.log('All workspace leaves:', allLeaves);
+        
+        // 열린 탭 진단
+        const openTabs = this.getOpenTabs(20);
+        console.log('Detected open tabs:', openTabs);
+        
+        // 워크스페이스 상태 정보
+        console.log('Workspace info:', {
+            activeLeaf: this.app.workspace.activeLeaf,
+            leftSplit: this.app.workspace.leftSplit,
+            rightSplit: this.app.workspace.rightSplit,
+            rootSplit: this.app.workspace.rootSplit
+        });
+        
+        // 플러그인 정보
+        const plugins = (this.app as any).plugins;
+        console.log('Installed plugins:', Object.keys(plugins.plugins || {}));
+        
+        console.log('=== Diagnosis Complete ===');
+    }
+
+    // 일반적인 웹뷰 플러그인들과 뷰 타입들을 확인하는 메서드
+    private detectKnownWebviewTypes(): Array<{name: string, path: string, type: 'note' | 'webview' | 'pdf', url?: string}> {
+        const webviews: Array<{name: string, path: string, type: 'note' | 'webview' | 'pdf', url?: string}> = [];
+        
+        // 알려진 웹뷰 타입들
+        const knownWebviewTypes = [
+            'web-view',
+            'webview', 
+            'browser',
+            'iframe',
+            'surfing-view', // Surfing plugin
+            'webpage-html-view', // Webpage HTML Export plugin
+            'obsidian-web-browser', // Web Browser plugin
+            'obsidian-browser', // Browser plugin variations
+            'external-link',
+            'pdf',
+            'image',
+            'video'
+        ];
+        
+        console.log('Searching for known webview types:', knownWebviewTypes);
+        
+        this.app.workspace.iterateAllLeaves((leaf) => {
+            const viewType = leaf.view.getViewType();
+            const view = leaf.view as any;
+            
+            // PDF 파일 처리
+            if (viewType === 'pdf') {
+                console.log(`Found PDF view: ${viewType}`);
+                
+                const file = view.file;
+                if (file) {
+                    webviews.push({
+                        name: file.basename,
+                        path: file.path,
+                        type: 'pdf'
+                    });
+                }
+            }
+            // 정확한 타입 매칭
+            else if (knownWebviewTypes.includes(viewType)) {
+                console.log(`Found known webview type: ${viewType}`);
+                
+                let url = this.extractUrlFromView(view);
+                let name = viewType; // 지구본 이모지 제거
+                
+                if (url) {
+                    try {
+                        const urlObj = new URL(url);
+                        name = urlObj.hostname; // 호스트명만 표시
+                    } catch (e) {
+                        name = viewType;
+                    }
+                }
+                
+                webviews.push({
+                    name: name,
+                    path: url || `${viewType}-view`,
+                    type: 'webview',
+                    url: url
+                });
+            }
+            
+            // 부분 매칭 (더 유연한 검사)
+            else if (viewType.includes('web') || 
+                     viewType.includes('browser') || 
+                     viewType.includes('iframe') ||
+                     viewType.includes('http')) {
+                console.log(`Found potential webview type: ${viewType}`);
+                
+                let url = this.extractUrlFromView(view);
+                let name = viewType; // 지구본 이모지 제거
+                
+                if (url) {
+                    try {
+                        const urlObj = new URL(url);
+                        name = urlObj.hostname; // 호스트명만 표시
+                    } catch (e) {
+                        name = viewType;
+                    }
+                }
+                
+                webviews.push({
+                    name: name,
+                    path: url || `${viewType}-view`,
+                    type: 'webview',
+                    url: url
+                });
+            }
+        });
+        
+        return webviews;
+    }
+    
+    // 뷰에서 URL을 추출하는 헬퍼 메서드
+    private extractUrlFromView(view: any): string | undefined {
+        // 다양한 방법으로 URL 추출 시도
+        const possibleUrls = [
+            view.url,
+            view.getState?.()?.url,
+            view.currentUrl,
+            view.src,
+            view.webviewEl?.src,
+            view.iframe?.src,
+            view.webview?.src,
+            view.frame?.src,
+            view.data?.url,
+            view.file?.path,
+        ];
+        
+        // DOM에서 URL 추출
+        if (view.containerEl) {
+            const iframe = view.containerEl.querySelector('iframe');
+            const webviewEl = view.containerEl.querySelector('webview');
+            const linkEl = view.containerEl.querySelector('a');
+            
+            if (iframe?.src) possibleUrls.push(iframe.src);
+            if (webviewEl?.src) possibleUrls.push(webviewEl.src);
+            if (linkEl?.href) possibleUrls.push(linkEl.href);
+        }
+        
+        // 첫 번째로 유효한 URL 반환
+        for (const url of possibleUrls) {
+            if (url && typeof url === 'string' && url !== 'about:blank' && 
+                (url.startsWith('http') || url.startsWith('file://'))) {
+                return url;
+            }
+        }
+        
+        return undefined;
     }
 }

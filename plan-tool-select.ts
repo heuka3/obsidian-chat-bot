@@ -52,7 +52,7 @@ export class PlanToolSelectService {
         // Google Search 도구 추가
         this.availableTools.push({
             name: "google_search",
-            description: "Search the web using Google to find current information, news, articles, and general knowledge about any topic",
+            description: "Search the web using Google to find current information, news, articles, and general knowledge about any topic. This tool provides search results with relevant URLs and content snippets.",
             parameters: {
                 type: "object",
                 properties: {
@@ -72,16 +72,21 @@ export class PlanToolSelectService {
 
     // 계획 수립 및 도구 선택
     async createExecutionPlan(userQuery: string, conversationContext: string = "", environmentContext: string = ""): Promise<ExecutionPlan> {
-        // 사용 가능한 도구 목록을 문자열로 변환
+        // 사용 가능한 도구 목록을 문자열로 변환 (파라미터 설명 포함)
         const toolsDescription = this.availableTools.map(tool => {
-            const params = tool.parameters?.properties 
-                ? Object.keys(tool.parameters.properties).join(', ')
-                : 'No parameters';
-            const required = tool.parameters?.required 
-                ? ` (Required: ${tool.parameters.required.join(', ')})`
-                : '';
+            let paramInfo = 'No parameters';
             
-            return `• ${tool.name}: ${tool.description}\n  Parameters: ${params}${required}`;
+            if (tool.parameters?.properties) {
+                const paramDetails = Object.entries(tool.parameters.properties).map(([paramName, paramData]: [string, any]) => {
+                    const type = paramData.type || 'unknown';
+                    const desc = paramData.description || 'No description';
+                    const required = tool.parameters?.required?.includes(paramName) ? ' (required)' : ' (optional)';
+                    return `    - ${paramName} (${type}${required}): ${desc}`;
+                }).join('\n');
+                paramInfo = `\n${paramDetails}`;
+            }
+            
+            return `• ${tool.name}: ${tool.description}\n  Parameters:${paramInfo}`;
         }).join('\n');
 
         const prompt = `

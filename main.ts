@@ -1,4 +1,4 @@
-import { Plugin, WorkspaceLeaf } from 'obsidian';
+import { Plugin, WorkspaceLeaf, Notice } from 'obsidian';
 import { ChatbotView, VIEW_TYPE_CHATBOT } from './chatbot-view';
 import { ChatbotSettingTab, DEFAULT_SETTINGS, ChatbotPluginSettings } from './settings';
 
@@ -19,6 +19,24 @@ export default class ChatbotPlugin extends Plugin {
     this.addRibbonIcon('message-circle', 'Open AI Chatbot', () => {
       console.log('Activated chatbot view!');
       this.activateView();
+    });
+
+    // 웹뷰 진단 명령어 추가 (디버깅용)
+    this.addCommand({
+      id: 'diagnose-webviews',
+      name: 'Diagnose Webviews (Debug)',
+      callback: () => {
+        const leaves = this.app.workspace.getLeavesOfType(VIEW_TYPE_CHATBOT);
+        if (leaves.length > 0) {
+          const view = leaves[0].view as ChatbotView;
+          if (view && view.diagnoseWebviews) {
+            view.diagnoseWebviews();
+            new Notice('Webview diagnosis complete - check console');
+          }
+        } else {
+          new Notice('No chatbot view found - please open the chatbot first');
+        }
+      }
     });
   }
 

@@ -338,8 +338,42 @@ export class GeminiService {
         }
     }
 
+    // Vault의 절대 경로를 얻는 메서드
+    private getVaultAbsolutePath(): string {
+        try {
+            if (this.app && this.app.vault) {
+                // vault adapter의 basePath 사용 (절대 경로)
+                const basePath = (this.app.vault.adapter as any)?.basePath;
+                if (basePath) {
+                    return basePath;
+                }
+            }
+            
+            // 폴백: 빈 문자열 반환
+            return '';
+        } catch (error) {
+            console.error('Error getting vault absolute path:', error);
+            return '';
+        }
+    }
+
+    // 파일의 절대 경로를 생성하는 메서드
+    private getFileAbsolutePath(relativePath: string): string {
+        try {
+            const vaultPath = this.getVaultAbsolutePath();
+            if (vaultPath && relativePath) {
+                const path = require('path');
+                return path.join(vaultPath, relativePath);
+            }
+            return relativePath; // 절대 경로를 얻을 수 없으면 상대 경로 그대로 반환
+        } catch (error) {
+            console.error('Error creating absolute path:', error);
+            return relativePath;
+        }
+    }
+
     // 시스템 컨텍스트 생성
-    private buildSystemContext(vaultName: string, mentionedNotes: Array<{name: string, path: string}> = []): string {
+    private buildSystemContext(vaultName: string, mentionedItems: Array<{name: string, path: string, type?: 'note' | 'webview' | 'pdf', url?: string}> = []): string {
         const availableToolsList = this.availableTools.length > 0 
             ? this.availableTools.map(tool => {
                 const params = tool.parameters && tool.parameters.properties 
@@ -358,8 +392,17 @@ export class GeminiService {
             }).join('\n')
             : '사용 가능한 도구가 없습니다.';
 
-        const mentionedNotesText = mentionedNotes.length > 0 
-            ? `\n- 사용자가 언급한 노트: ${mentionedNotes.map(note => `"${note.name}" (경로: ${note.path})`).join(', ')}`
+        const mentionedItemsText = mentionedItems.length > 0 
+            ? `\n- 사용자가 언급한 항목: ${mentionedItems.map(item => {
+                if (item.type === 'webview') {
+                    return `"${item.name}" (웹뷰: ${item.url})`;
+                } else if (item.type === 'pdf') {
+                    const absolutePath = this.getFileAbsolutePath(item.path);
+                    return `"${item.name}" (PDF 파일: ${item.path}, 절대경로: ${absolutePath})`;
+                } else {
+                    return `"${item.name}" (노트: ${item.path})`;
+                }
+            }).join(', ')}`
             : '';
 
         return `=== SYSTEM CONTEXT ===
@@ -368,7 +411,7 @@ export class GeminiService {
 **현재 환경:**
 - Obsidian Vault: "${vaultName}"
 - 플러그인: AI Chatbot
-- 위치: Obsidian 내부 플러그인 환경${mentionedNotesText}
+- 위치: Obsidian 내부 플러그인 환경${mentionedItemsText}
 
 **사용 가능한 도구 (MCP 서버를 통한 Function Calling):**
 ${availableToolsList}
@@ -380,6 +423,8 @@ ${availableToolsList}
 4. 도구를 사용할 때는 적절한 매개변수를 전달하여 정확한 결과를 얻도록 하세요.
 5. 사용자가 vault나 노트에 대한 질문을 할 때는 현재 "${vaultName}" vault 컨텍스트에서 답변하세요.
 6. 사용자가 언급한 노트들이 있다면 해당 노트들의 내용을 참고하여 답변하세요.
+7. 사용자가 웹뷰를 언급한 경우, 해당 웹사이트의 URL을 참고하여 답변하세요.
+8. 사용자가 PDF 파일을 언급한 경우, 제공된 절대경로를 통해 해당 PDF 파일에 접근하여 내용을 참고하세요.
 
 **⚠️ Function Calling 필수 규칙:**
 - 도구를 호출할 때는 반드시 해당 도구의 정확한 스키마에 정의된 매개변수만 사용하세요.
@@ -443,7 +488,7 @@ ${availableToolsList}
      * model: string - 사용할 모델명 (예: "gemini-2.5-flash")
      * mentionedNotes: Array<{name: string, path: string}> - 언급된 노트 목록 (이름과 경로)
      */
-    async sendMessage(model: string = 'gemini-2.5-flash', mentionedNotes: Array<{name: string, path: string}> = []): Promise<string> {
+    async sendMessage(model: string = 'gemini-2.5-flash', mentionedItems: Array<{name: string, path: string, type?: 'note' | 'webview' | 'pdf', url?: string}> = []): Promise<string> {
         if (!this.isConfigured()) {
             throw new Error('Gemini API key가 설정되지 않았습니다.');
         }
@@ -476,12 +521,23 @@ ${availableToolsList}
 - Obsidian Vault: "${vaultName}"
 - 플러그인: AI Chatbot (Plan & Execute 모드)
 - 위치: Obsidian 내부 플러그인 환경
-${mentionedNotes.length > 0 ? `- 사용자가 언급한 노트: ${mentionedNotes.map(note => `"${note.name}" (경로: ${note.path})`).join(', ')}` : ''}
+${mentionedItems.length > 0 ? `- 사용자가 언급한 항목: ${mentionedItems.map(item => {
+    if (item.type === 'webview') {
+        return `"${item.name}" (웹뷰: ${item.url})`;
+    } else if (item.type === 'pdf') {
+        const absolutePath = this.getFileAbsolutePath(item.path);
+        return `"${item.name}" (PDF 파일: ${item.path}, 절대경로: ${absolutePath})`;
+    } else {
+        return `"${item.name}" (경로: ${item.path})`;
+    }
+}).join(', ')}` : ''}
 
 **중요 컨텍스트:**
 - 당신은 Obsidian vault "${vaultName}" 내에서 작동하고 있습니다.
 - 파일 경로나 vault 관련 작업을 수행할 때는 현재 vault 이름을 고려하세요.
 - 사용자가 vault나 노트에 대한 질문을 할 때는 현재 "${vaultName}" vault 컨텍스트에서 답변하세요.
+- 사용자가 웹뷰를 언급한 경우, 해당 웹사이트의 내용을 참고하여 답변하세요.
+- 사용자가 PDF 파일을 언급한 경우, 절대경로를 통해 해당 PDF 파일에 접근할 수 있습니다.
 ===============================`;
 
                 // 1. 계획 수립
@@ -509,13 +565,13 @@ ${mentionedNotes.length > 0 ? `- 사용자가 언급한 노트: ${mentionedNotes
 
         // 기존 Function Calling 모드
         console.log("🔧 기존 Function Calling 모드로 실행");
-        return await this.sendMessageLegacy(model, mentionedNotes, conversationContext);
+        return await this.sendMessageLegacy(model, mentionedItems, conversationContext);
     }
 
     /**
      * 기존 Function Calling 방식 (폴백용)
      */
-    private async sendMessageLegacy(model: string, mentionedNotes: Array<{name: string, path: string}>, conversationContext: string): Promise<string> {
+    private async sendMessageLegacy(model: string, mentionedItems: Array<{name: string, path: string, type?: 'note' | 'webview' | 'pdf', url?: string}>, conversationContext: string): Promise<string> {
         // 최근 user/assistant 메시지 10쌍(21개) 추출
         const filtered = this.conversationHistory.filter(m => m.role === 'user' || m.role === 'assistant');
         const latest_context = filtered.slice(-21);
@@ -532,7 +588,7 @@ ${mentionedNotes.length > 0 ? `- 사용자가 언급한 노트: ${mentionedNotes
         const vaultName = this.getVaultName();
         
         // 시스템 컨텍스트 생성
-        const systemContext = this.buildSystemContext(vaultName, mentionedNotes);
+        const systemContext = this.buildSystemContext(vaultName, mentionedItems);
         
         // 대화 내용 구성
         let contents = [];

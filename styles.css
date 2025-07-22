@@ -665,6 +665,40 @@
 .chatbot-note-autocomplete-item-path {
     color: var(--text-muted);
     font-size: 12px;
+    margin-top: 2px;
+    word-break: break-all; /* 긴 URL 줄바꿈 */
+}
+
+/* 웹뷰 URL은 조금 더 눈에 띄게 */
+.chatbot-note-autocomplete-item[data-type="webview"] .chatbot-note-autocomplete-item-path {
+    color: var(--color-accent);
+    font-family: monospace; /* URL은 모노스페이스 폰트로 */
+    background: var(--background-modifier-border);
+    padding: 1px 4px;
+    border-radius: 3px;
+    font-size: 11px;
+}
+
+/* PDF 아이템 특별 스타일 */
+.chatbot-note-autocomplete-item[data-type="pdf"] {
+    background: linear-gradient(90deg, var(--background-primary) 0%, var(--background-modifier-border) 100%);
+    border-left: 3px solid var(--color-orange);
+}
+
+.chatbot-note-autocomplete-item[data-type="pdf"]:hover,
+.chatbot-note-autocomplete-item[data-type="pdf"].selected {
+    background: linear-gradient(90deg, var(--background-modifier-hover) 0%, var(--background-modifier-border-hover) 100%);
+}
+
+.chatbot-note-autocomplete-item[data-type="pdf"] .chatbot-note-autocomplete-item-icon {
+    color: var(--color-orange);
+    font-size: 16px;
+}
+
+.chatbot-note-autocomplete-item[data-type="pdf"] .chatbot-note-autocomplete-item-path {
+    color: var(--text-muted);
+    font-style: italic;
+    font-size: 11px;
 }
 
 .chatbot-note-autocomplete-empty {
@@ -672,6 +706,29 @@
     text-align: center;
     color: var(--text-muted);
     font-style: italic;
+}
+
+/* 웹뷰 아이템 특별 스타일 */
+.chatbot-note-autocomplete-item[data-type="webview"] {
+    background: linear-gradient(90deg, var(--background-primary) 0%, var(--background-modifier-hover) 100%);
+    border-left: 3px solid var(--color-accent);
+}
+
+.chatbot-note-autocomplete-item[data-type="webview"]:hover,
+.chatbot-note-autocomplete-item[data-type="webview"].selected {
+    background: linear-gradient(90deg, var(--background-modifier-hover) 0%, var(--background-modifier-border) 100%);
+}
+
+.chatbot-note-autocomplete-item[data-type="webview"] .chatbot-note-autocomplete-item-icon {
+    color: var(--color-accent);
+    font-size: 16px;
+    animation: pulse 2s infinite;
+}
+
+@keyframes pulse {
+    0% { opacity: 1; }
+    50% { opacity: 0.6; }
+    100% { opacity: 1; }
 }
 
 /* 언급된 노트 태그 스타일 */
