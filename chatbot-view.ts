@@ -1,7 +1,7 @@
 import { ItemView, WorkspaceLeaf, Notice, MarkdownRenderer } from "obsidian";
-import { OpenAIService, ChatMessage } from "./openai-service";
-import { GeminiService } from "./gemini-service";
-import { PlanProgressData } from "./types";
+import { OpenAIService, ChatMessage } from "./src/openai-service";
+import { GeminiService } from "./src/gemini-service";
+import { PlanProgressData } from "./src/types";
 
 export const VIEW_TYPE_CHATBOT = "chatbot-view";
 

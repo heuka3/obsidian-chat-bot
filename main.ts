@@ -1,6 +1,6 @@
 import { Plugin, WorkspaceLeaf, Notice } from 'obsidian';
 import { ChatbotView, VIEW_TYPE_CHATBOT } from './chatbot-view';
-import { ChatbotSettingTab, DEFAULT_SETTINGS, ChatbotPluginSettings } from './settings';
+import { ChatbotSettingTab, DEFAULT_SETTINGS, ChatbotPluginSettings } from './src/settings';
 
 export default class ChatbotPlugin extends Plugin {
   settings: ChatbotPluginSettings;
