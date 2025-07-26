@@ -1,0 +1,1165 @@
+=== Page 1 ===
+Preprint. This work has been submitted to IEEE for possible puplication.
+
+SPICEAssistant: LLM using SPICE Simulation Tools
+for Schematic Design of Switched-Mode Power
+Supplies
+SIMON NAU1,2, JAN KRUMMENAUER1, and ANDRÉ ZIMMERMANN2,3
+1Cross-Domain Computing Solutions, Robert Bosch GmbH, Daimlerstraße 6, Leonberg 71229, Germany
+2University of Stuttgart, Institute for Micro Integration (IFM), Allmandring 9b, Stuttgart 70569, Germany
+3Hahn-Schickard, Allmandring 9b, Stuttgart 70569, Germany
+Corresponding author: Simon Nau (Simon.Nau@de.bosch.com).
+ABSTRACT  State-of-the-art large language models (LLMs) show high performance across a wide range
+of tasks in many domains of science. In the field of electronic design automation (EDA), it is yet to be
+determined to what extent they are capable to understand, adapt, and dimension electronic circuits. This
+paper focuses on the application of LLMs to switched-mode power supply (SMPS) design on printed circuit
+boards (PCBs). Particular challenges for LLMs in this context include their limited ability to interpret results
+from key simulation tools like SPICE and the multi-step design process. To address these challenges, we
+suggest SPICEAssistant, a framework that provides a broad selection of tools to an LLM. The tools serve
+as an interface to SPICE, allowing the LLM to interact flexibly with the simulator to estimate the impact
+of its modifications to the circuit. To evaluate the performance of SPICEAssistant, we defined a benchmark
+consisting of 256 questions testing the ability to adapt circuit netlists to fulfil different SMPS design tasks.
+The benchmarking results show that simulation feedback effectively improves SMPS design capabilities of
+LLMs. An increasing number of simulation iterations leads to enhanced performance. The SPICEAssistant
+framework significantly outperforms the standalone LLM GPT-4o on the benchmark by approximately 38%.
+
+
+INDEX TERMS Electronic design automation, Large language model, SPICE, Switched-mode power supply
+I. INTRODUCTION
+   ARGE language models (LLMs) have achieved remark-
+     able results in a broad field of applications. In the engi-L
+neering domain, the use of LLMs in software development
+is a well-known and highly successful area [1]. Extensive
+research is being conducted to translate this success into the
+field of electronic design automation (EDA). One key area is
+the development of digital integrated circuits (ICs) through
+hardware description language (HDL) code generation, par-
+ticularly with Verilog [2]–[10]. As HDL development  is
+similar to standard coding, LLMs perform well on these tasks.
+Yet, there are challenges, such as the limited availability of
+public Verilog data for LLM training in comparison to more
+prevalent languages like Python [11]. Recent research has
+extended the application of LLMs in hardware design beyond
+HDL code generation. Another focus area in EDA is the inte-
+gration of LLMs with circuit simulators, for example SPICE
+(Simulation Program with Integrated Circuit Emphasis) [12].
+In SPICEPilot [13] and AnalogCoder [14] the Python library
+PySpice is used to generate SPICE simulations to support
+the LLM in the development of circuits. LADAC [15] fo-
+cuses on analog circuit design and utilizes LLMs to generate
+amplifier and ring oscillator circuits. AmpAgent [16] uses a
+multi-agent LLM system for automated literature analysis,
+mathematical reasoning, and device sizing, demonstrating
+success in designing multi-stage amplifiers. LEDRO [17] and
+WiseEDA [18] combine LLMs with optimization techniques,
+such as Bayesian optimization or particle swarm optimiza-
+tion. LEDRO focuses on refining analog circuit sizing of 22
+Op-Amp topologies, while WiseEDA concentrates on radio
+frequency integrated circuits (RFICs), exemplified by a band-
+pass filter. Finally, PICBench [19] introduces a benchmark for
+evaluating LLM performance in photonic integrated circuit
+(PIC) design.
+
+
+
+  In contrast to previous research, this work focuses on
+the application of LLMs for switched-mode power supply
+(SMPS) on printed circuit board (PCB) designs. The SMPS
+circuits are represented via SPICE netlists. This application
+presents unique challenges distinct from those in other fields.
+In this paper, we aim to address the following challenges
+faced by state-of-the-art LLMs in designing and adapting
+SPICE netlists of SMPS circuits:
+--------------------------------------------------------------------------------
+=== Page 2 ===
+   • Limitations in simulation result interpretability:
+    While simulation tools like SPICE are essential in the
+    development process of SMPS circuits, state-of-the-art
+   LLMs have limited ability to interpret the simulation
+     results [15]. We investigate this in a case study in Section
+     II-B for SPICE simulation outputs, demonstrating that
+    GPT-4o cannot reliably extract information from the
+     resulting time series signals.
+   • Lack of circuit specific domain knowledge:
+   SMPS circuits typically contain larger ICs, such as in-
+     tegrated controllers, along with peripheral circuitry. For
+    such specific power controllers however, publicly avail-
+     able data suitable for LLM training are scarce. In many
+     instances, the datasheet may be the only public source of
+     information for a specific IC.
+     Furthermore, since datasheets contain multimodal infor-
+     mation, their readability for LLMs is relatively poor. For
+    example, a schematic of the typical application circuit is
+    an important part of most power controller datasheets.
+    But state-of-the-art LLMs, like GPT-4o, are not able
+     to read such circuit schematic images, as [16], [20],
+     [21] and [22] have demonstrated. Furthermore, most
+     datasheets include many graphical plots, which models
+     like GPT-4o also struggle to interpret, see Section II-B.
+   • Complex multi-step design process:
+    The SMPS design process presents significant chal-
+     lenges. Even a simple task, such as adjusting the periph-
+     eral circuit netlist of an LTC3419 controller to achieve
+     a current ripple of 100 mA, requires a sophisticated
+     reasoning process. Figure 1 visualizes how that question
+    would be solved by an engineer. All the steps of the
+     reasoning process and the required information sources -
+     datasheet, circuit netlist and LTSpice simulation, are dis-
+     played to give an insight in the sophisticated reasoning
+     process the LLM has to mimic.
+   • LLM outputs lack reliability:
+   LLMs sometimes provide unreliable answers [23]. Their
+    tendency to hallucinate is a major challenge for em-
+     ploying LLMs [24]. This issue is especially problematic
+     for our application on SMPS design, as hallucinations
+     are more likely to occur when the LLM lacks relevant
+    domain specific knowledge [25] [26] and when they deal
+    with complex reasoning tasks [26].
+  To mitigate these challenges, we suggest SPICEAssistant.
+At its core lies an LLM, in this case GPT-4o1, for which we
+have developed a broad selection of tools. The tools consist
+of functions, that serve as an interface for the LLM to the
+LTSpice simulator. These functions reliably extract different
+features from the simulated signals and provide them in a
+readable form as feedback to the LLM. One example would
+be getting a reliable peak-to-peak value of the output voltage
+ripple. Additionally, in order to enhance the LLM’s circuit-
+specific domain knowledge, it is enabled to interact with the
+corresponding datasheet via Retrieval Augmented Generation
+
+  1Accessed via Azure OpenAI REST API, version 024-05-01-preview.
+Human Expert
+FIGURE 1.  The approach of an engineer to solve the example question
+"Adjust the netlist, such that the current ripple has the value 100 mA".
+See complete input prompt in Figure 5. The meaning of the used
+variables is: ΔIL - ripple current, fs - switching frequency, Vout - output
+voltage, Vin - input voltage, R1 and R2 - resistors in feedback path
+
+
+
+(RAG) [27].
+Thereby, we enable the LLM to flexibly interact with the
+LTSpice simulation and the datasheet. Thus, we can combine
+the LLM’s background knowledge and basic reasoning capa-
+bilities with insights into the complex physical functionality
+of the circuits. The LLM can go through multiple iterations
+with the simulator and thus learn what the effect of changes
+in the circuit is. As a result, it has a much higher ability to
+mimic the complex SMPS design process, than in a standard
+straightforward workflow. Finally, the simulation feedback
+effectively verifies the LLM responses, which increases their
+reliability significantly.
+
+
+  We created a benchmark to evaluate the performance of
+our suggested framework. The benchmark consists of 256
+questions, each requiring the LLM to adapt a circuit netlist
+to fulfill a certain design task. For the benchmark, example
+circuits of varying complexity levels from the area of SMPS
+are used as the basis.
+In most cases, the datasheet of a power controller contains an
+image of the typical application circuit. Usually, the engineer
+starts with that basic circuitry and then adapts  it until  it
+fulfills the desired requirements. Taking this workflow as an
+example, we aim to adapt existing SPICE netlists instead of
+creating SMPS schematics from scratch. In related literature,
+complex real-world circuits are often not generated from
+scratch; rather, a topology library is used as a starting point
+[14], [18], or the schematic image is manually translated into
+a netlist for the LLM [16].
+Information
+Source
+
+
+
+
+
+       0
+         4.20           10µ
+        OUT1
+     N004          IN             00               1200N002
+
+           59K
+    N004OUT1         0N004              22p
+       9m V1C3Rload1XU1LTC3419R3C2.tran.endINOUT2
+
+
+
+
+
+        0
+          4.20            10µ
+         OUT1
+      N004           IN              00                1200N002
+
+            59K
+     N004OUT1          0N004               22p
+        9m  V1C3Rload1XU1LTC3419R3C2.tran.endINOUT2
+Use background knowledge, look in datasheet of used
+LTC3419 step-down regulator to find out, that current
+ripple is mainly controlled by the inductor 𝐿
+𝑉out (1 −
+𝐿⋅𝑓s
+𝑉out )
+𝑉in
+𝑉out
+   Read formula for current ripple: Δ𝐼𝐿=
+
+Rearrange formula
+Find missing parameters for formula: 𝑓s, 𝑉in, 𝑉out
+
+            Read 𝑉in from given netlist: 5.5V
+
+            Read 𝑓s from datasheet: 2.25 MHz
+Read formula for 𝑉out = 0.6V(1 +
+𝑅2𝑅1) from datasheet
+      Read 𝑅2, 𝑅1from given netlist (they may be
+      named differently): 187kΩ, 59kΩ
+
+Calculate 𝑉out : 2.5 V
+
+Calculate 𝐿: 6.06 µH
+
+Identify right component in netlist and insert calculated
+value
+
+       Run LTSpice simulation to verify result and
+                 if necessary, readapt manually
+--------------------------------------------------------------------------------
+=== Page 3 ===
+B. LLMS AND TIME-SERIES INPUT
+Table 1 provides the results of a case study, in which we ex-
+amine the ability of the LLM GPT-4o to interpret time-series
+data. Specifically, GPT-4o is tasked with identifying the rip-
+ple peak-to-peak value from either a raw numeric vector or its
+corresponding image representation. An answer is considered
+correct when the LLM’s reading falls within a 10% tolerance
+range of the ground-truth value.
+
+
+TABLE 1. Case study: Investigating the ability of the state-of-the-art LLM
+GPT-4o to handle time series data, examined through the task of reading
+the ripple in time series provided as numeric vectors or images
+  In the conducted benchmarking, SPICEAssistant outper-
+forms standalone GPT-4o by approximately 38%.  It does
+not require any additional training and is fully automated,
+meaning no human intervention is necessary. With SPICE-
+Assistant, engineers can simply specify their requirements in
+natural language, avoiding the time-intensive design process
+exemplified in Figure 1. In the benchmark experiments we
+show that the performance of SPICEAssistant increases over
+the number of interactions between the LLM and the simu-
+lation tools by roughly a factor of five. We further discuss
+the performance of SPICEAssistant across different question
+categories and highlight current limitations.
+
+
+  To summarize, this paper makes the following key contri-
+butions:
+
+   • We introduce SPICEAssistant, an LLM-based agent
+    equipped with multiple tools to interpret feedback from
+     the LTSpice circuit simulator and retrieve information
+    from datasheets using RAG. SPICEAssistant performs
+   38% better on the benchmark than the state-of-the-art
+   LLM, GPT-4o.
+   • The construction of a benchmark consisting of 256 ques-
+     tions that test the ability of LLMs to adapt, dimension,
+    and understand the structure of SPICE circuit netlists.
+    As a basis, examples from the field of switched-mode
+    power supplies are used.
+
+
+II. BACKGROUND
+
+A. SWITCHED-MODE POWER SUPPLY
+
+Switched-mode power supplies are widely used electronic
+circuits, that convert power from direct current (DC) sources
+or alternating current (AC) sources to DC loads with a high
+efficiency, allowing flexible adjustment of the output voltage
+level. The buck, boost, and buck-boost are the three basic
+SMPS topologies commonly used. One of the simplest SMPS
+circuits is the general buck converter, also known as step-
+down converter [28]. It consists of a switch realized with a
+transistor, a diode, an inductor and an output capacitor, see
+Figure 4a. Further, it requires a controller with a feedback
+loop from the output voltage to drive the transistor to switch
+between on and off states. This produces a pulse train, which
+is filtered by the L/C output filter to supply a DC output
+voltage [28]. The value of the DC output voltage is mainly
+controlled by the ratio of the transistor’s on and off times.
+Modern buck converters consist of sophisticated ICs as con-
+trollers that enable different operating modes, very high ef-
+ficiencies, spread spectrum operation to reduce noise, ad-
+justable switching frequency and start-up time. Other ad-
+vanced features are for example fault protection mechanisms
+such as overvoltage protection, overcurrent protection or ther-
+mal shutdown as well as the extension of the topology to
+multi-phase buck converters.
+Test
+Case
+Correct
+Answer
+Correct     Vector     GPT-4o          GPT-4o
+Answer    Length      (Vector)           (Image)
+426 µV    1250      350 µV  ✗      0.8 mV
+673 µV    2040      605 µV ✓    1.1 mV
+17 mV     1600      113 mV  ✗     36 mV
+14.5 mV   650        83.4 mV  ✗     40 mV
+24.1 mV   950        24.3 mV ✓    24 mV
+Vector
+Length
+GPT-4o
+(Vector)
+  The results in table 1 show, that it is not a reliable option to
+provide the time series as numeric vectors or images directly
+to the LLM for interpretation and further processing. While
+GPT-4o was, for example, not able to extract the correct ripple
+from the signal visualized in Figure 2a, it was correct for the
+test case depicted in Figure 2b.
+
+
+
+
+
+         (a) Test case 1: Output voltage of buck converter with ripple
+
+
+
+
+
+         (b) Test case 5: Output voltage of buck converter with ripple
+
+
+    FIGURE 2. Example SPICE simulation signals from the case study
+
+
+
+III. METHODOLOGY
+A. SPICEASSISTANT
+The architecture of SPICEAssistant is shown in Figure 3.
+The LLM-based agent gets a reference circuit netlist as in-
+--------------------------------------------------------------------------------
+=== Page 4 ===
+put, derived from the typical application circuit found in the
+datasheets of SMPS chips. In most cases these initial circuits
+do not meet the desired specifications. Therefore, the task of
+the agent is to modify the netlist to align with specific input
+requirements given by an engineer.
+In the setup shown in Figure 3, the standalone LLM GPT-4o
+serves as baseline agent, depicted in grey, which directly out-
+puts a modified netlist. To optimize its performance, we em-
+ploy prompt engineering, providing tailored instructions. For
+instance, we advise the agent to always include the adapted
+netlist in its responses. Additionally, the phrase "Think step
+by step." is incorporated, since it has been shown in [29] that
+this can improve GPT’s performance.
+The first extension of this baseline is depicted in orange.
+GPT-4o  is provided with specific information about the
+SMPS used, sourced from the corresponding datasheet via
+RAG. The LLM assistant’s instructions are adjusted accord-
+ingly to inform it, that it has access to the datasheet. The LLM
+decides autonomously how often it retrieves information from
+the datasheet.
+The blue colored part in Figure 3 highlights a second exten-
+sion to the baseline LLM agent. The LLM can receive sim-
+ulation feedback about the behavior of the circuit, allowing
+it to estimate the impact of its modifications to the netlist.
+This feedback helps to verify the netlist adaptions suggested
+by the LLM, enhancing the reliability of the responses. The
+interaction between the LLM and LTSpice simulation is en-
+abled by a set of reading tools (python functions) that serve as
+interface. In Section II-B, we pointed out, that GPT-4o can not
+reliably extract features, like a ripple, from the output signal
+of the LTSpice simulation. To address this, we developed a
+comprehensive set of preimplemented tools to extract vari-
+ous features from the LTSpice output signals. The LLM can
+access these tools and flexibly decide which tool to use and
+how often to call upon it, based on the specific benchmark
+question. Some of these tools are for example:
+
+   • get_mean_output_voltage()
+     Calculates the mean over a time interval in the steady
+     state of the output voltage.
+   • get_ripple()
+     Extracts the peak-to-peak value of a periodic signal in
+     the steady state, as discussed in Section II-B.
+   • get_switching_frequency()
+      First, it performs a Fourier transform of the signal within
+FIGURE 3. Overview of the SPICEAssistant framework: An instructed GPT-4o agent serves as baseline, receiving a reference circuit and requirements as
+input and directly outputs the adapted circuit netlist. The first extension enables information retrieval from datasheets using RAG. The second extension
+equips the agent with several tools through which it can receive simulation feedback about specific circuit features
+SPICEAssistant
+Agent Instruction
+“You are a helpful AI assistant, who is an
+expert about LTSpice and netlists of electric
+circuits. You will be asked to update a netlist,
+in that case always include the adapted netlist
+in your answer. You have access to
+datasheets to get information about
+components. Use the other tools to access
+LTSpice simulation to verify if your suggested
+
+
+                                                                                                          IN                                                                                                              0                                                                                                              4.2netlist is correct. Think step by step.”                    V1C3                                                                                                         OUT2                                                                                                                0                                                                                                                10µ
+                                                                                                      Rload1 OUT1 0 1200
+                                                                                                        XU1 N004 IN 0 N002
+                                                                                                       IN N001 IN N003 0
+                                                                                                      LTC3419
+                                                                                                       R2 OUT1 N004 59K
+                                                                                                       R3 N004 0 59K
+                                                                                                       C2 OUT1 N004 22p
+                                                                                                       .tran 9m
+                                                                                                       .end
+
+
+         Feedback
+    Input
+
+
+Datasheet           RAG
+Output
+
+
+
+
+
+  Adapted
+   SPICE
+    Netlist
+SPICE Netlist
+  of Typical
+ Application
+
+ Engineer‘s
+Requirement
+Initial Prompt
+
+
+
+
+
+  Tool Choice
+     LLM
+
+
+
+
+
+  Netlist
+Suggestion
+V1 IN 0 4.2
+C3 OUT2 0 10µ
+Rload1 OUT1 0 1200
+XU1 N004 IN 0 N002
+IN N001 IN N003 0
+LTC3419
+R2 OUT1 N004 59K
+R3 N004 0 59K
+C2 OUT1 N004 22p
+.tran 9m
+.end
+Extracted Feature
+V1 IN 0 4.2                   Extracted Featur
+C3 OUT2 0 10µ
+Rload1 OUT1 0 1200
+XU1 N004 IN 0 N002
+IN N001 IN N003 0
+LTC3419
+R2 OUT1 N004 59K
+R3 N004 0 59K
+C2 OUT1 N004 22p
+.tran 9m
+.end                Chosen Tool
+                        Reading Tools
+
+
+
+
+                       LTspice Simulation
+
+
+
+SPICE Interaction              Datasheet Interaction           Baseline Pipeline
+--------------------------------------------------------------------------------
+=== Page 5 ===
+     a steady-state time interval, then extracts the funda-
+    mental frequency by identifying the highest peak in the
+     spectrum.
+   • get_settle_in_time()
+     Calculates the mean value of the output voltage over a
+    time window in steady state and identifies the first time
+     the signal reaches 90% of the steady state value.
+
+
+B. BENCHMARKING
+
+We created a benchmark to evaluate the ability of LLM-based
+systems to understand, modify and dimension circuit netlists.
+The benchmark is based on SMPS example circuits, featuring
+three circuit types with increasing levels of difficulty. The
+simplest is an idealized general buck converter, illustrated
+in Figure 4a. The medium level is a buck converter using
+the LTC3419, a dual step-down regulator [30], as shown in
+Figure 4b. The most complex example is the typical appli-
+cation circuit of the LTC7802, a 2-phase synchronous step-
+down controller with advanced features like spread spectrum
+operation or a programmable switching frequency, depicted
+in Figure 4c.
+Overall, the benchmark contains 256 test questions: 72 for the
+general buck converter (easy), 72 for the LTC3419 (medium),
+and 112 for the LTC7802 (hard).
+We examine various design tasks that are typical for SMPS
+circuits. The test questions in this evaluation can be divided
+into two categories: 32 questions focus on topology adaption,
+while the remaining 224 questions are targeted on parameter
+tuning.
+The following examples illustrate the types of questions in-
+cluded in the benchmark. For the parameter tuning category,
+a simple benchmark question is: "Adjust the netlist, such that
+the supply voltage corresponds to the value x". To address this
+question, the agent should follow two basic steps:
+
+ (1) Identify the line in the netlist that specifies the supply
+     voltage
+ (2) Adjust the component value correctly
+
+A question of medium difficulty is: "Adjust the netlist, such
+that the output voltage of the circuit corresponds to the value
+x. If necessary, set the supply voltage to the maximum pos-
+              (a) LTSpice circuit of general buck converter (easy)                  (b) Typical LTC3419 application circuit, from its datasheet [30] (medium)
+
+
+
+
+
+                                               (c) Typical LTC7802 application circuit, from its datasheet [31] (hard)
+
+FIGURE 4. The three SMPS circuit types, with increasing difficulty level, serve as a basis for the benchmark
+--------------------------------------------------------------------------------
+=== Page 6 ===
+sible value". To solve this design task for a LTC3419 circuit,
+the agent should follow a series of steps:
+changes in the test circuits. Moreover, combining the design
+tasks with different dimensioning values, such as setting the
+ripple current to various target values, multiplies the number
+of benchmark questions. A complete example benchmark
+question prompt, using a medium-difficulty LTC3419 netlist,
+as input for the SPICEAssistant, is shown in Figure 5.
+The benchmarking is automated using a json file, see Figure
+6. This file contains the necessary information to construct
+each test question prompt and to evaluate the LLM-generated
+netlists. It includes the target dimensioning value, allowed
+tolerance, and the specific verification tool to be used. These
+verification tools are identical to those used by the LLM agent
+to obtain feedback from the LTSpice simulation.
+ (1) Read the output voltage formula Vout = 0.6V(1 + R1R2 )
+    from the datasheet or draw it from the LLM’s internal
+    knowledge.
+ (2) Rearrange the formula to calculate R1 and/or R2, to meet
+     the required output voltage x.
+ (3) Identify R1, R2 in the netlist and change their component
+     values. They are the two resistors forming a voltage
+     divider in the feedback path of the controller and may
+    be named differently than R1 and R2.
+ (4)  If the required output voltage is greater than or equal
+     to the supply voltage, then read the maximum allowed
+     input voltage for the controller from the datasheet and
+     adjust it as in the first example question above.
+  More difficult design tasks involve a stepwise evaluation
+of multiple formulas and the values of multiple components
+may need to be changed.
+An example from the topology adaption question category for
+a LTC7802 example circuit is: "Adjust the netlist to select
+the pulse skipping mode". To accomplish this task, the agent
+should follow these steps:
+ (1) Read from the datasheet that pulse skipping mode is
+     selected by tying the mode pin to INTVcc (another pin)
+     through a 100k resistor.
+ (2) Identify the responsible mode pin and the INTVcc pin in
+     the netlist.
+ (3) Connect the mode pin via a 100k resistor to INTVcc.
+       FIGURE 5.  Complete benchmark question input prompt
+
+
+  The 256 benchmark questions were created by integrating
+various design tasks, as illustrated in the examples above,
+across the three circuit types. Further diversity is achieved
+by varying component values and applying minor topology
+FIGURE 6.  The automatic benchmarking involves simulating
+SPICEAssistant’s output netlist, extracting the relevant design feature
+with a reading tool, and evaluating it against the target dimensioning
+value.
+
+
+
+IV. RESULTS AND DISCUSSION
+A. EXPERIMENTAL SETUP
+In the following experiments, GPT-4o is used as state-of-the-
+art LLM configured with a temperature = 1 and top-p = 1. It
+is accessed via the Azure OpenAI REST API [32] (version
+2024-05-01-preview) by employing their assistant API. For
+the RAG process, the default parameters provided by the
+AzureOpenai API [33] are taken. That means, the RAG is
+configured with a chunk size of 800 tokens and a chunk
+overlap of 400 tokens, utilizes the text-embedding-3-large
+model [34] with 256 dimensions for vector embedding. The
+maximum number of chunks added as context to the LLM
+is 20. Circuit simulations are performed using the freely
+available SPICE simulator LTSpice [35]. All reported API
+call results were generated between March and April 2025.
+
+
+B. EVALUATION METRICS
+As evaluation metric the solve rate is employed, which repre-
+sents the percentage of design tasks from the benchmark that
+are correctly completed by the SPICEAssistant. A question
+is considered to be correctly answered if the target value
+falls within a specified tolerance range, such as a ripple of
+18 mV ± 0.9 mV. Generally, the tolerance is set at 5%, except
+for topology adaption questions, like "Adjust the netlist to
+select the pulse skipping mode.", which can only be answered
+right or wrong.
+The solve rate categorizes each response from the SPICE-
+For all benchmark questions
+Benchmark.json           SPICEAssistant     Circuit Simulation &
+N  tli  t
+Netlist
+Design task
+Dimensioning value
+Tolerance
+Reading tool
+ Feature Extraction  Evaluation
+
+Output
+Netlist
+SPICE Netlist
+ of Example
+    Circuit
+
+
+
+
+
+Design Task
+
+Dimensioning
+    value
+  Tolerance
+You have the following SPICE netlist:
+V1 IN 0 5.5
+Cin IN 0 10µ
+C3 OUT2 0 10µ Rser=0.05
+L2 N001 OUT2 3.3µ
+Rload2 OUT2 0 3
+R5 OUT2 N003 118K
+R6 N003 0 59K
+C4 OUT2 N003 22p
+C1 OUT1 0 10µ Rser=0.05
+L1 N002 OUT1 3.3µ
+Rload1 OUT1 0 4.16
+XU1 N004 IN 0 N002 IN N001 IN N003 0 LTC3419
+R2 OUT1 N004 187K
+R3 N004 0 59K
+C2 OUT1 N004 22p
+Please adjust the netlist in order to adapt the ripple current
+on OUT1. The ripple current should have the following
+value: 100mA.
+The allowed tolerance is 5 mA.
+--------------------------------------------------------------------------------
+=== Page 7 ===
+TABLE 2. Main benchmarking results: The performance is shown for design tasks related to the three different circuit types and the total benchmark,
+using the Solve Rate and median(APE) as performance metrics. The methods assessed include the baseline GPT-4o agent, combinations with datasheet
+information retrieval via RAG, feedback from SPICE simulations, and the complete SPICEAssistant framework using both
+
+
+                     General Buck Converter (easy)      LTC3419 (medium)           LTC7802 (hard)                      Total
+ Method            Solve Rate   median(APE)      Solve Rate   median(APE)   Solve Rate   median(APE)    Solve Rate   median(APE)
+  Baseline: GPT-4o    29.0 ± 1.0    55.3 ± 3.1         12.5         56.3             7.1           75.2             14.8         64.3
+ GPT-4o + RAG     25.4 ± 1.1    63.2 ± 2.7         18.1         55.0            10.7         55.0             16.9         57.3
+ GPT-4o + SPICE    64.4 ± 1.5    3.7 ± 0.2          48.6          4.7             39.3          5.4              49.0          4.7
+  SPICEAssistant     64.9 ± 1.8    3.6 ± 0.3          50.0          4.6             47.3          4.3              53.0          4.2
+Assistant as either correct or incorrect. As supplementary
+continuous metric we use the absolute percentage error
+APE =  Ai−Fi                      · 100%, where Ai represents the actual value               Ai
+and Fi the value provided by the SPICEAssistant Due to the
+                                   p      g
+APE =  Ai−Fi                      · 100%, where Ai represents the actual value               Ai
+and Fi the value provided by the SPICEAssistant. Due to the
+presence of significant outliers in the APE we use the median
+of the APE to avoid distortion. These strong outliers can occur
+for example, when a design task aims for a 20 mV output
+voltage ripple, but the result of the initial netlist is 120 mV,
+leading to an APE of 500% if the LLM fails with further
+adjustments. Another reason to use the APE is that the target
+values of the design tasks have different orders of magnitude,
+so using the absolute error AE is not a viable option.
+For the median APE, topology adaption questions are ex-
+cluded since they can only be marked as correct or incorrect.
+To receive a better statistical estimation of the performance
+and to determine what constitutes a statistically significant
+change in the performance metrics, we run the entire bench-
+marking process n times, with n = 40. This allows us to cal-
+culate the sample mean of the evaluation metrics and the cor-
+responding confidence interval [36] with a significance level
+of α = 0.05. Due to limitations concerning the simulation
+runtime, this more detailed statistical evaluation is performed
+only for benchmark questions targeted on the simple circuit
+type of the general buck converter.
+Ai
+C. MAIN RESULTS
+The benchmarking is conducted for the following agent con-
+figurations: GPT-4o alone, GPT-4o combined with datasheet
+interaction (GPT-4o + RAG), GPT-4o with simulation feed-
+back (GPT-4o + SPICE), and finally, the complete SPICE-
+Assistant, which integrates GPT-4o, SPICE, and RAG. The
+benchmarking results are presented in Table 2.
+SPICEAssistant significantly outperforms standalone GPT-4o
+across the entire benchmark, increasing the solve rate by
+approximately 38%. Moreover, the median APE improves
+remarkably from 64% to 4%. When examining the mean per-
+formance and confidence intervals for general buck converter
+circuits,  it is evident that the improvement is statistically
+significant.
+  It can be observed that primary performance gain comes
+from verifying the answers with LTSpice simulation feed-
+back. When comparing approaches that utilize datasheet in-
+formation via RAG to those that do not, we notice a slight im-
+provement with RAG for the LTC3419 and LTC7802 circuits.
+However, in the case of the general buck converter, GPT-4o
+FIGURE 7.  The distribution of the APE on the total benchmark shows
+the effectiveness of the SPICE feedback, yet also reveals significant
+outliers
+
+
+alone performs better than the combination of GPT-4o and
+RAG. Also, there is no statistically significant difference
+between GPT-4o + SPICE and GPT-4o + SPICE + RAG.
+One reason for this could be, that there is much publicly
+available information on the general buck converter, which
+was likely included in GPT-4o’s training data, providing
+GPT-4o with inherent knowledge about this circuit type. In
+contrast, there are very limited public data on the LTC3419
+and LTC7802, making the additional information provided
+from RAG more crucial for these circuit types than for the
+general buck converter.
+Overall, it can be observed, that information extraction via
+standard RAG from the technical datasheet does not con-
+tribute much to improve the performance. This aligns with the
+findings in [16], where the authors applied RAG to complex
+technical literature to enhance LLM’s knowledge for design-
+ing a multi-stage amplifier. Moreover, in another case study,
+we benchmarked SPICEAssistant with an idealized RAG for
+the general buck converter by manually extracting all relevant
+datasheet information and putting  it in the input prompt.
+However, the results did not surpass those achieved with the
+standard RAG. This suggests that the issue may not depend on
+standard RAG’s information extraction capabilities, but rather
+with GPT-4o’s ability to integrate all relevant information into
+the required multi-step thinking process.
+400
+350
+300
+250
+200
+150
+100
+ 50
+GPT-4o     GPT-4o
+        + RAG
+GPT-4o     GPT-4o
+        + RAG
+GPT-4o
++ SPICE
+   GPT-4o
++ RAG + SPICE
+--------------------------------------------------------------------------------
+=== Page 8 ===
+FIGURE 8.  Successful example of the interaction between LLM,
+simulation tools and datasheet in the SPICEAssistant framework for a
+parameter tuning benchmark question
+
+
+
+
+  The performance of all tested approaches declines from the
+general buck converter (easy) to the LTC3419 (medium) and
+further to the LTC7802 (hard). Possible reasons for this trend
+are:
+   • A higher amount of publicly available data about the
+     general buck converter topology, compared to the spe-
+      cific controllers LTC3419 and LTC7802.
+   • The LTC3419, and especially the LTC7802, have more
+    complex netlists with a greater diversity of components
+    and nodes, an increasing number of controller pins to
+     configure, etc. Therefore, these netlists are increasingly
+    more difficult to comprehend and give much more room
+     for mistakes compared to the significantly shorter netlist
+     of the general buck converter.
+   • The complexity and number of different physical func-
+     tions of the circuit, as well as the corresponding formu-
+      las, increase with the difficulty level.
+  Figure 7 shows a boxplot illustrating the distribution of
+the APE across the entire benchmark for  all four tested
+approaches. The boxplot depicts the range from the first
+quartile (Q1) to the third quartile (Q3), with a line marking
+FIGURE 9. Unsuccessful example of the interaction between LLM,
+simulation tools and datasheet in the SPICEAssistant framework for a
+topology adaption benchmark question
+
+
+the median. Whiskers extend from the edges of the box to
+the most extreme data points that fall within 1.5 times the
+interquartile range (IQR) starting from either end of the box
+[37].
+Notably, there are strong outliers in the APE, some of which
+even exceed the image’s bounds and are truncated for the
+readability. This  is particularly the case for GPT-4o and
+GPT-4o + RAG.
+The boxplot further underlines that adding datasheet infor-
+mation via RAG does not substantially enhance performance,
+confirming the above drawn conclusions.
+
+  To gain deeper insights into the qualitative behavior of
+SPICEAssistant, we show two examples that illustrate the in-
+ternal stepwise interactions between GPT-4o, the simulation
+tools, and the datasheet via RAG.
+Figure 8 shows a successful example where a feedback
+resistor and supply voltage are correctly adjusted to achieve
+the desired output voltage. In a first step, the LLM uses
+RAG to extract the output voltage formula from the datasheet
+and calculates a new feedback resistor value of 1050 kΩ,
+highlighted in red in Figure 8. Although the formula suggests
+1027.65 kΩfor an output of 38V, GPT-4o’s estimate  is
+close and would result in 38.8V. To verify, the LLM uses
+                                                              Information
+LLM   You have the following SPICE netlist:                                            S
+You have the following SPICE netlist:
+### medium level netlist ###
+V1 IN 0 3.6
+…
+XU1 FB1 IN 0 SW1 IN SW2 IN FB2 0 LTC3419
+…
+Please adjust the netlist in order to select the pulse-
+skipping mode. The 3. pin of the LTC3419 is
+responsible for the mode.
+Source
+ To select pulse-skipping mode, tie 𝑉in to MODE pin.
+ (RAG)
+
+ The adapted netlist:
+ ### medium level netlist ###
+ V1 IN 0 3.6
+ …
+ XU1 FB1 IN 0 SW1 IN SW2 IN FB2 IN LTC3419
+ …
+
+          LTC3419 is in Burst Mode. (Tool Feedback)
+
+ The adapted netlist:
+ ### medium level netlist ###
+ V1 IN 0 3.6
+ …
+ XU1 FB1 IN MODE SW1 IN SW2 IN FB2 0 LTC3419
+ MODE IN 0
+ …
+
+            LTSpice simulation failed. (Tool Feedback)
+
+LLM stopped the conversation.
+LLM                                                          Information
+       You have the following SPICE netlist
+You have the following SPICE netlist:
+Source
+### hard level netlist ###
+V1 RUN 0 25.7
+…
+R2 OUT2 Vfb2 457K
+…
+Adjust the netlist, such that the output voltage (OUT2)
+takes the following value: 38 V. If necessary, set the
+supply voltage to the maximum possible value. The
+allowed tolerance is 1.9 V.
+𝑉out = 0.8𝑉⋅(1 + 𝑅B𝑅𝐴) (RAG)
+ The adapted netlist:
+ ### hard level netlist ###
+ V1 RUN 0 25.7
+ …
+ R2 OUT2 Vfb2 1050K
+ …
+
+ The circuit’s output voltage is 25.67 V. (Tool Feedback)
+
+ Despite adjusting the feedback resistor, the output
+ voltage remains below 38 V. Retrieve information about
+ maximal supply voltage from datasheet.
+
+               Input Voltage Range: 4.5V to 40V. (RAG)
+
+ The adapted netlist:
+ ### hard level netlist ###
+ V1 RUN 0 40
+ …
+ R2 OUT2 Vfb2 1050K
+ …
+
+ The circuit’s output voltage is 38.01V. (Tool Feedback)
+
+LLM completed the conversation.
+--------------------------------------------------------------------------------
+=== Page 9 ===
+the tool get_mean_output_voltage(), which returns 25.56V
+due to insufficient supply voltage. GPT-4o then retrieves the
+maximum input voltage for the LTC7802 from the datasheet,
+updates the netlist, and after simulation verification, SPICE-
+Assistant provides the adjusted netlist as the final output.
+Figure 9 illustrates a design task where SPICEAssistant fails
+to find the correct solution. To select pulse-skipping mode, the
+mode pin (third pin in the netlist) should connect to the input
+voltage node "IN." Initially, the mode pin is connected to
+ground. The LLM first correctly uses the input node "IN" but
+connects it to the wrong pin. In the next attempt, it renames
+the third pin to "MODE" but uses incorrect SPICE syntax
+while trying to connect that pin to "IN".
+A possible reason for the struggle of SPICEAssistant to cor-
+rectly connect controller pins may be the complex structure
+and syntax of the SPICE netlist. The netlist line configuring
+the pin connections of the controller is challenging to interpret
+(XU1 FB1 IN 0 SW1 IN SW2 IN FB2 0 LTC3419).
+
+
+  In Section III-B the two question categories parameter
+tuning and topology adaption where introduced. Figure 10
+illustrates the solve rate of SPICEAssistant for these two
+question categories across the three different circuit types.
+For the LTC3419 and LTC7802, the performance on topology
+adaption questions is significantly lower than for parame-
+ter tuning questions. However, for general buck converter
+circuits, the performance on topology adaption questions is
+approximately equal to, even slightly better than, that on
+parameter tuning questions.
+A possible reason for these observations might be a higher
+amount of publicly available data, especially concerning
+topology descriptions in the form of netlists, about the general
+buck converter compared to the specific controllers LTC3419
+and LTC7802.
+A general issue might also be the disadvantageous semantic
+structure of SPICE netlists. This problem is also recognized
+in related works. In an attempt to improve the semantic
+structure, the authors in [38] and [39] propose their own indi-
+vidual textual circuit representations, while in [14] the authors
+utilize the PySpice library to represent the circuits within
+Python. In SPICE netlists, the circuit topology is encoded in a
+tabular format rather than being described in a language-like
+semantic structure. For instance, the line "R1 SW N01 10k"
+stands for the resistor R1 being connected to the nodes SW
+and N01. Furthermore, the semantic representation of the
+components functionality is weak. For example, the naming
+of the nodes in the circuit is arbitrary. In the SPICE netlist
+line above, the node name SW indicates that this is the
+switching node, which plays a central role in every buck
+converter, but the node name N01 provides no indication
+of its functionality. These shortcomings and the need for
+improvement in topology adaption design tasks may serve
+as starting point of future research in this area.
+FIGURE 11.  Performance of SPICEAssistant over the number of tool
+iterations
+
+  In Figure 11 the interaction of the LLM with its simulation
+tools is analyzed. The performance measured by the solve rate
+is shown over the number of iterations in SPICEAssistant.
+The solve rate increases with the number of iterations until it
+reaches a plateau after five iterations. To conclude, repeated
+FIGURE 10. Performance of SPICEAssistant on different question categories and circuit types
+0.7
+0.6
+0.5
+0.4
+0.3
+0.2
+                 General Buck Converter
+                LTC3419
+                LTC7802
+                    Total
+ 2      3      4      5      6
+Number of iterations
+0.1
+0.0
+topology adaption
+
+parameter tuning
+
+topology adaption
+
+parameter tuning
+
+topology adaption
+
+parameter tuning
+General Buck Converter
+                 (easy)
+General Buck Converter
+                       (      )
+ LTC3419
+(medium)
+LTC7802                                                                                 Correct  (hard)
+                                                                                    False
+0.0             0.2             0.4             0.6             0.8             1.0
+                                   Solve Rate
+--------------------------------------------------------------------------------
+=== Page 10 ===
+simulation feedback significantly increases the design abil-
+ities of LLMs on SMPS circuits, yet they are still limited
+when it comes to sophisticated multi-step design tasks with
+complex netlists and topology adaption tasks.
+
+
+V. CONCLUSION
+This paper presents SPICEAssistant, a framework that equips
+an LLM with a broad selection of tools, which enable flexible
+interaction with a SPICE simulation environment for SMPS
+design. This allows the LLM to correctly interpret the impact
+of its modifications to SMPS circuits and to verify its answers
+with the received feedback. We defined a benchmark consist-
+ing of 256 questions testing the ability to adapt circuit SPICE
+netlists to fulfill different design tasks. The benchmarking
+shows that SPICEAssistant significantly enhances the abil-
+ity of LLMs to understand, adapt, and dimension electronic
+circuits, with performance increasing by approximately 38%
+compared to standalone GPT-4o. Through interactions with
+the SPICE simulation tools, the LLM is enabled to follow a
+multi-step design process, which is often involved in SMPS
+development. The frameworks performance improves with an
+increasing number of simulation iterations. While SPICEAs-
+sistant generally performs well on parameter tuning tasks, its
+capability in topology adaption tasks for circuits with higher
+complexity is  still limited. In conclusion, SPICEAssistant
+presents a promising approach to increase the usability of
+LLMs in EDA. Possible future research could address an
+evaluation of different text-based circuit representations to
+improve the performance on topology adaption tasks.
+
+
+REFERENCES
+
+ [1] X. Hou, Y. Zhao, Y. Liu, Z. Yang, K. Wang, L. Li, X. Luo, D. Lo, J. Grundy,
+     and H. Wang, ‘‘Large language models for software engineering: A system-
+      atic literature review,’’ ACM Transactions on Software Engineering and
+     Methodology, vol. 33, no. 8, pp. 1–79, 2024.
+ [2]  J. Blocklove, S. Garg, R. Karri, and H. Pearce, ‘‘Chip-chat: Challenges and
+      opportunities in conversational hardware design,’’ in 2023 ACM/IEEE 5th
+     Workshop on Machine Learning for CAD (MLCAD), pp. 1–6, IEEE, 2023.
+ [3] K. Chang, Y. Wang, H. Ren, M. Wang, S. Liang, Y. Han, H. Li, and X. Li,
+      ‘‘Chipgpt: How far are we from natural language hardware design,’’ arXiv
+      preprint arXiv:2305.14019, 2023.
+ [4]  S. Thakur, B. Ahmad, H. Pearce, B. Tan, B. Dolan-Gavitt, R. Karri, and
+      S. Garg, ‘‘Verigen: A large language model for verilog code generation,’’
+   ACM Transactions on Design Automation of Electronic Systems, vol. 29,
+      no. 3, pp. 1–31, 2024.
+ [5]  S. Thakur, J. Blocklove, H. Pearce, B. Tan, S. Garg, and R. Karri, ‘‘Au-
+      tochip: Automating hdl generation using llm feedback,’’ arXiv preprint
+     arXiv:2311.04887, 2023.
+ [6] M. Liu, N. Pinckney, B. Khailany, and H. Ren, ‘‘Verilogeval: Evaluating
+      large language models for verilog code generation,’’ in 2023 IEEE/ACM
+      International Conference on Computer Aided Design (ICCAD), pp. 1–8,
+     IEEE, 2023.
+ [7]  Y. Tsai, M. Liu, and H. Ren, ‘‘Rtlfixer: Automatically fixing rtl syntax
+      errors with large language model,’’ in Proceedings of the 61st ACM/IEEE
+     Design Automation Conference, pp. 1–6, 2024.
+ [8]  Y. Lu, S. Liu, Q. Zhang, and Z. Xie, ‘‘Rtllm: An open-source benchmark
+      for design rtl generation with large language model,’’ in 2024 29th Asia
+     and South Pacific Design Automation Conference (ASP-DAC), pp. 722–
+     727, IEEE, 2024.
+ [9]  Y. Fu, Y. Zhang, Z. Yu, S. Li, Z. Ye, C. Li, C. Wan, and Y. C. Lin,
+      ‘‘Gpt4aigchip: Towards next-generation ai accelerator design automation
+      via large language models,’’ in 2023 IEEE/ACM International Conference
+     on Computer Aided Design (ICCAD), pp. 1–9, IEEE, 2023.
+[10]  S. Liu, W. Fang, Y. Lu, J. Wang, Q. Zhang, H. Zhang, and Z. Xie, ‘‘Rtlcoder:
+     Fully open-source and efficient llm-assisted rtl code generation technique,’’
+    IEEE Transactions on Computer-Aided Design of Integrated Circuits and
+     Systems, vol. 44, no. 4, pp. 1448–1461, 2025.
+[11] D. Guo, Q. Zhu, D. Yang, Z. Xie, K. Dong, W. Zhang, G. Chen,
+     X. Bi, Y. Wu, Y. Li, et al., ‘‘Deepseek-coder: When the large language
+     model meets programming–the rise of code intelligence,’’ arXiv preprint
+     arXiv:2401.14196, 2024.
+[12]  ‘‘The spice book,’’ 1994.
+[13] D. Vungarala, S. Alam, A. Ghosh, and S. Angizi, ‘‘Spicepilot: Navigating
+      spice code generation and simulation with ai guidance,’’ arXiv preprint
+     arXiv:2410.20553, 2024.
+[14]  Y. Lai, S. Lee, G. Chen, S. Poddar, M. Hu, D. Z. Pan, and P. Luo,
+     ‘‘Analogcoder: Analog circuit design via training-free code generation,’’
+     arXiv preprint arXiv:2405.14918, 2024.
+[15] C. Liu, Y. Liu, Y. Du, and L. Du, ‘‘Ladac: Large language model-driven
+      auto-designer for analog circuits,’’ Authorea Preprints, 2024.
+[16] C. Liu, W. Chen, A. Peng, Y. Du, L. Du, and  J. Yang, ‘‘Ampagent:
+    An llm-based multi-agent system for multi-stage amplifier schematic de-
+      sign from literature for process and performance porting,’’ arXiv preprint
+     arXiv:2409.14739, 2024.
+[17] D. V. Kochar, H. Wang, A. Chandrakasan, and X. Zhang, ‘‘Ledro: Llm-
+     enhanced design space reduction and optimization for analog circuits,’’
+     arXiv preprint arXiv:2411.12930, 2024.
+[18] H. Jin, J. Wang, J. Sheng, Y. Wu, J. Chen, Y. Wang, and J. Liu, ‘‘Wiseeda:
+     Llms in rf circuit design,’’ Microelectronics Journal, p. 106607, 2025.
+[19]  Y. Wu, X. Yu, H. Chen, Y. Luo, Y. Tong, and Y. Ma, ‘‘Picbench: Bench-
+     marking llms for photonic integrated circuits design,’’ arXiv preprint
+     arXiv:2502.03159, 2025.
+[20]  Z. Tao, Y. Shi, Y. Huo, R. Ye, Z. Li, L. Huang, C. Wu, N. Bai, Z. Yu, T.-J.
+      Lin, et al., ‘‘Amsnet: Netlist dataset for ams circuits,’’ in 2024 IEEE LLM
+     Aided Design Workshop (LAD), pp. 1–5, IEEE, 2024.
+[21]  Y. Shi, Z. Tao, Y. Gao, T. Zhou, C. Chang, Y. Wang, B. Chen, G. Zhang,
+     A. Liu, Z. Yu,  et  al., ‘‘Amsnet-kg: A  netlist dataset  for llm-based
+    ams  circuit auto-design using knowledge graph  rag,’’ arXiv preprint
+     arXiv:2411.13560, 2024.
+[22]  J. Bhandari, V. Bhat, Y. He, S. Garg, H. Rahmani, and R. Karri, ‘‘Masala-
+      chai: A large-scale spice netlist dataset for analog circuits by harnessing
+        ai,’’ 2025.
+[23]  Z. Gou, Z. Shao, Y. Gong, Y. Shen, Y. Yang, N. Duan, and W. Chen, ‘‘Critic:
+     Large language models can self-correct with tool-interactive critiquing,’’
+     arXiv preprint arXiv:2305.11738, 2023.
+[24]  S. Tonmoy, S. Zaman, V. Jain, A. Rani, V. Rawte, A. Chadha, and A. Das,
+      ‘‘A comprehensive survey of hallucination mitigation techniques in large
+     language models,’’ arXiv preprint arXiv:2401.01313, vol. 6, 2024.
+[25]  Y. Zhang, Y. Li, L. Cui, D. Cai, L. Liu, T. Fu, X. Huang, E. Zhao, Y. Zhang,
+      Y. Chen, et al., ‘‘Siren’s song in the ai ocean: a survey on hallucination in
+      large language models,’’ arXiv preprint arXiv:2309.01219, 2023.
+[26]  L. Huang, W. Yu, W. Ma, W. Zhong, Z. Feng, H. Wang, Q. Chen, W. Peng,
+     X. Feng, B. Qin, et al., ‘‘A survey on hallucination in large language
+     models: Principles, taxonomy, challenges, and open questions,’’ ACM
+     Transactions on Information Systems, vol. 43, no. 2, pp. 1–55, 2025.
+[27]  P. Lewis, E. Perez, A. Piktus, F. Petroni, V. Karpukhin, N. Goyal, H. Küttler,
+    M. Lewis, W.-t. Yih, T. Rocktäschel, et al., ‘‘Retrieval-augmented gener-
+      ation for knowledge-intensive nlp tasks,’’ Advances in neural information
+     processing systems, vol. 33, pp. 9459–9474, 2020.
+[28]  T. Instruments, ‘‘Understanding buck power stages in switchmode power
+      supplies - application report,’’ 1999.
+[29]  T. Kojima, S. S. Gu, M. Reid, Y. Matsuo, and Y. Iwasawa, ‘‘Large language
+     models are zero-shot reasoners,’’ Advances in neural information process-
+     ing systems, vol. 35, pp. 22199–22213, 2022.
+[30]  ‘‘Ltc3419       product       information      and        datasheet,
+      https://www.analog.com/en/products/ltc3419.html,’’ 04.2025.
+[31]  ‘‘Ltc7802       product       information      and        datasheet,
+      https://www.analog.com/en/products/ltc7802.html,’’ 04.2025.
+[32]  ‘‘Azure  openai   rest   api,   https://learn.microsoft.com/en-us/azure/ai-
+      services/openai/reference,’’ last access on 04.2025.
+[33]  ‘‘Azure  openai  api  file  search  tool,  https://learn.microsoft.com/en-
+      us/azure/ai-services/openai/how-to/file-search?tabs=python,’’  last access
+     on 04.2025.
+[34]  ‘‘text-embedding-3-large,     https://openai.com/index/new-embedding-
+      models-and-api-updates/,’’ last access on 04.2025.
+[35]  ‘‘Ltspice,        https://www.analog.com/en/resources/design-tools-and-
+      calculators/ltspice-simulator.html,’’ 02.2025.
+--------------------------------------------------------------------------------
+=== Page 11 ===
+[36] Heumann, Schomaker, and Shalabh, ‘‘Introduction to statistics and data
+      analysis,’’ pp. 206–207, 2022.
+[37]  ‘‘matplotlib boxplot, https://matplotlib.org/stable/api/_as_gen/matplotlib.py-
+      plot.boxplot.html,’’ 04.2025.
+[38]  J. Gao, W. Cao, J. Yang, and X. Zhang, ‘‘Analoggenie: A generative en-
+     gine for automatic discovery of analog circuit topologies,’’ arXiv preprint
+     arXiv:2503.00205, 2025.
+[39]  Z. Chen, J. Huang, Y. Liu, F. Yang, L. Shang, D. Zhou, and X. Zeng,
+      ‘‘Artisan: Automated operational amplifier design via domain-specific
+      large language model,’’ in Proceedings of the 61st ACM/IEEE Design
+     Automation Conference, pp. 1–6, 2024.
+--------------------------------------------------------------------------------

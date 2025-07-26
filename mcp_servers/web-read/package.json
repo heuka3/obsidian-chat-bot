@@ -1,0 +1,35 @@
+{
+  "name": "web-read",
+  "version": "1.0.0",
+  "main": "index.js",
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": "",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.16.0",
+    "@types/turndown": "^5.0.5",
+    "jsdom": "^26.1.0",
+    "puppeteer": "^24.14.0",
+    "turndown": "^7.2.0",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "@types/jsdom": "^21.1.7",
+    "@types/node": "^24.0.14",
+    "@types/puppeteer": "^5.4.7",
+    "tsx": "^4.7.0",
+    "typescript": "^5.8.3"
+  },
+  "type": "module",
+  "bin": {
+    "web-read": "./build/index.js"
+  },
+  "scripts": {
+    "build": "tsc && chmod 755 build/index.js",
+    "test:process-urls": "tsx test/process-urls.ts"
+  },
+  "files": [
+    "build"
+  ]
+}

@@ -11,6 +11,7 @@
     "importHelpers": true,
     "isolatedModules": true,
     "strictNullChecks": true,
+    "skipLibCheck": true,
     "lib": [
       "DOM",
       "ES5",
@@ -22,6 +23,8 @@
     "**/*.ts"
   ],
   "exclude": [
-    "mcp-client_ex.ts"
+    "mcp-client_ex.ts",
+    "node_modules/**/*",
+    "**/node_modules/**/*"
   ]
 }

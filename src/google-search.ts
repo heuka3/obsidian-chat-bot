@@ -1,5 +1,7 @@
 import { GoogleGenAI } from "@google/genai";
 
+// TODO: 각 url에 대해 마크다운으로 변환하여 그 소스를 제공하는건 mcp 도구를 이용해 구현해보자.
+
 export interface GoogleSearchResult {
     title: string;
     url: string;
@@ -8,7 +10,8 @@ export interface GoogleSearchResult {
 
 export interface GoogleSearchResponse {
     query: string;
-    results: GoogleSearchResult[];
+    responseText: string; // 전체 응답 텍스트
+    groundResults: GoogleSearchResult[];
     total_results: number;
 }
 
@@ -58,8 +61,7 @@ export class GoogleSearchService {
                     );
                     
                     const snippet = relatedSupport?.segment?.text || 
-                                  responseText.substring(0, 200) || 
-                                  "검색 결과 요약";
+                                  "grounding chunk에서 관련된 텍스트를 찾을 수 없습니다.";
 
                     results.push({
                         title: chunk.web.title,
@@ -69,22 +71,14 @@ export class GoogleSearchService {
                 }
             }
 
-            // 결과가 없으면 응답 텍스트를 기반으로 기본 결과 생성
-            if (results.length === 0 && responseText) {
-                results.push({
-                    title: "Google Search 결과",
-                    url: `https://www.google.com/search?q=${encodeURIComponent(query)}`,
-                    snippet: responseText.substring(0, 300) || "검색 결과를 찾았습니다."
-                });
-            }
-
             const searchResult: GoogleSearchResponse = {
                 query: query,
-                results: results,
+                responseText: responseText,
+                groundResults: results,
                 total_results: results.length
             };
 
-            console.log(`✅ Google Search 완료: ${searchResult.results.length}개 결과`);
+            console.log(`✅ Google Search 완료: ${searchResult.groundResults.length}개 결과`);
             return searchResult;
             
         } catch (error) {
@@ -93,10 +87,11 @@ export class GoogleSearchService {
             // 폴백: 기본 응답 반환
             return {
                 query: query,
-                results: [{
+                responseText: "검색 결과를 가져올 수 없습니다.",
+                groundResults: [{
                     title: "검색 결과를 가져올 수 없습니다",
                     url: "https://www.google.com/search?q=" + encodeURIComponent(query),
-                    snippet: "인터넷 검색 기능에 문제가 발생했습니다. 직접 검색해보세요."
+                    snippet: "google search 기능에 문제가 발생했습니다."
                 }],
                 total_results: 0
             };
@@ -105,12 +100,12 @@ export class GoogleSearchService {
 
     // 검색 결과를 텍스트로 변환
     formatSearchResults(searchResponse: GoogleSearchResponse): string {
-        const results = searchResponse.results.map((result, index) => {
+        const results = searchResponse.groundResults.map((result, index) => {
             return `${index + 1}. ${result.title}
    URL: ${result.url}
-   요약: ${result.snippet}`;
+   URL 내용 요약: ${result.snippet}`;
         }).join('\n\n');
 
-        return `검색어: "${searchResponse.query}"\n총 ${searchResponse.total_results}개 결과\n\n${results}`;
+        return `검색어: "${searchResponse.query}"\n총 ${searchResponse.total_results}개 결과\n출력 응답: ${searchResponse.responseText}\n\n${results}`;
     }
 }

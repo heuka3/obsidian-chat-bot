@@ -1,0 +1,12 @@
+{
+  "name": "web-read-test",
+  "version": "1.0.0",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "dev": "tsx process-urls.ts"
+  },
+  "devDependencies": {
+    "tsx": "^4.7.0"
+  }
+}

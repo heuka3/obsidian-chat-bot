@@ -31,6 +31,7 @@ const context = await esbuild.context({
 		"@lezer/common",
 		"@lezer/highlight",
 		"@lezer/lr",
+		"./xhr-sync-worker.js", // jsdom 관련 경고 해결
 		...builtins],
 	format: "cjs",
 	platform: "node",
