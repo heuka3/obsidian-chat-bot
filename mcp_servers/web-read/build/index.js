@@ -2,9 +2,9 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
-import { convertHtmlToMarkdown } from 'dom-to-semantic-markdown';
 import { JSDOM } from 'jsdom';
 import puppeteer from 'puppeteer';
+import TurndownService from 'turndown';
 // Create the MCP server instance
 const server = new McpServer({
     name: "Web Read Server",
@@ -12,131 +12,132 @@ const server = new McpServer({
 });
 export async function urlToMarkdown(url) {
     try {
-        // 먼저 fetch로 시도 (빠른 방법)
-        let html = '';
-        let isDynamic = false;
-        try {
-            const res = await fetch(url);
-            if (!res.ok) {
-                throw new Error(`HTTP error! status: ${res.status}`);
-            }
-            html = await res.text();
-            // 동적 페이지 감지 - React, Vue, Angular 등의 흔적을 찾음
-            const dynamicIndicators = [
-                'react', 'vue', 'angular', 'ng-app', 'ng-version',
-                '__NEXT_DATA__', '_app', 'nuxt', 'gatsby',
-                'data-reactroot', 'data-vue', 'spa-loading',
-                'id="root"', 'id="app"', 'id="__nuxt"'
-            ];
-            const lowerHtml = html.toLowerCase();
-            isDynamic = dynamicIndicators.some(indicator => lowerHtml.includes(indicator.toLowerCase()));
-            // 페이지 내용이 매우 적거나 JavaScript 의존적인 경우도 동적으로 판단
-            const textContent = html.replace(/<[^>]*>/g, '').trim();
-            if (textContent.length < 500 && html.includes('<script')) {
-                isDynamic = true;
-            }
-        }
-        catch (fetchError) {
-            // fetch가 실패하면 Puppeteer로 시도
-            isDynamic = true;
-        }
-        // 동적 페이지이거나 fetch가 실패한 경우 Puppeteer 사용
-        if (isDynamic) {
-            console.log('Dynamic page detected, using Puppeteer...');
-            const browser = await puppeteer.launch({
-                headless: true,
-                args: ['--no-sandbox', '--disable-setuid-sandbox']
-            });
-            try {
-                const page = await browser.newPage();
-                // User-Agent 설정으로 봇 차단 우회
-                await page.setUserAgent('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36');
-                // 불필요한 리소스 차단으로 성능 향상
-                await page.setRequestInterception(true);
-                page.on('request', (req) => {
-                    const resourceType = req.resourceType();
-                    if (['stylesheet', 'font', 'image', 'media'].includes(resourceType)) {
-                        req.abort();
-                    }
-                    else {
-                        req.continue();
-                    }
-                });
-                // 페이지 로드 및 JavaScript 실행 대기
-                await page.goto(url, {
-                    waitUntil: 'networkidle2',
-                    timeout: 30000
-                });
-                // 불필요한 요소들 제거
-                await page.evaluate(() => {
-                    const selectorsToRemove = [
-                        'nav', 'header', 'footer', 'aside', 'sidebar',
-                        '.nav', '.navbar', '.navigation', '.menu',
-                        '.header', '.footer', '.sidebar', '.aside',
-                        '.advertisement', '.ad', '.ads', '.banner',
-                        '.social', '.share', '.sharing',
-                        '.cookie', '.popup', '.modal',
-                        '.newsletter', '.subscription',
-                        '.related', '.recommended', '.suggestions',
-                        '.comments', '.comment-section',
-                        '[class*="nav"]', '[class*="menu"]',
-                        '[class*="ad"]', '[class*="banner"]',
-                        '[id*="nav"]', '[id*="menu"]',
-                        '[id*="ad"]', '[id*="banner"]'
-                    ];
-                    selectorsToRemove.forEach(selector => {
-                        const elements = document.querySelectorAll(selector);
-                        elements.forEach(el => el.remove());
-                    });
-                    // script, style, noscript 태그 제거
-                    const unwantedTags = ['script', 'style', 'noscript', 'iframe'];
-                    unwantedTags.forEach(tag => {
-                        const elements = document.querySelectorAll(tag);
-                        elements.forEach(el => el.remove());
-                    });
-                });
-                // 추가로 동적 콘텐츠 로딩을 위해 잠시 대기
-                await new Promise(resolve => setTimeout(resolve, 1000));
-                // 렌더링된 HTML 가져오기
-                html = await page.content();
-            }
-            finally {
-                await browser.close();
-            }
-        }
-        // html이 여전히 비어있다면 에러
-        if (!html) {
-            throw new Error('Failed to retrieve HTML content from the URL');
-        }
+        let html = await fetchHtml(url);
         // HTML 전처리 - 불필요한 요소들 제거
         html = cleanHtml(html);
-        // 2. parse HTML to DOM
+        // DOM 파싱 및 메인 컨텐츠 추출
         const dom = new JSDOM(html);
-        const document = dom.window.document;
-        // 메인 컨텐츠 추출
-        const mainContent = extractMainContent(document);
-        // 3. convert DOM to Markdown with aggressive cleanup
-        const markdown = convertHtmlToMarkdown(mainContent, {
-            overrideDOMParser: new dom.window.DOMParser(),
-            websiteDomain: new URL(url).origin,
-            extractMainContent: true,
-        });
-        // 마크다운 후처리
-        return cleanMarkdown(markdown);
+        const mainContent = extractMainContent(dom.window.document);
+        // Turndown을 사용하여 HTML을 Markdown으로 변환
+        const turndownService = createTurndownService();
+        let markdown = turndownService.turndown(mainContent);
+        // 두 번 이상 연속된 개행을 한 번으로 치환
+        markdown = markdown.replace(/\n{2,}/g, '\n');
+        return markdown.trim();
     }
     catch (error) {
         throw new Error(`Failed to convert URL to markdown: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
 }
-// HTML 전처리 함수
+// HTML 가져오기 (정적/동적 페이지 자동 판단)
+async function fetchHtml(url) {
+    let html = '';
+    let isDynamic = false;
+    try {
+        const res = await fetch(url);
+        if (!res.ok) {
+            throw new Error(`HTTP error! status: ${res.status}`);
+        }
+        html = await res.text();
+        // 동적 페이지 감지
+        const dynamicIndicators = [
+            'react', 'vue', 'angular', 'ng-app', 'ng-version',
+            '__NEXT_DATA__', '_app', 'nuxt', 'gatsby',
+            'data-reactroot', 'data-vue', 'spa-loading',
+            'id="root"', 'id="app"', 'id="__nuxt"'
+        ];
+        const lowerHtml = html.toLowerCase();
+        isDynamic = dynamicIndicators.some(indicator => lowerHtml.includes(indicator.toLowerCase()));
+        const textContent = html.replace(/<[^>]*>/g, '').trim();
+        if (textContent.length < 500 && html.includes('<script')) {
+            isDynamic = true;
+        }
+    }
+    catch (fetchError) {
+        isDynamic = true;
+    }
+    // 동적 페이지인 경우 Puppeteer 사용
+    if (isDynamic) {
+        console.log('Dynamic page detected, using Puppeteer...');
+        html = await fetchWithPuppeteer(url);
+    }
+    if (!html) {
+        throw new Error('Failed to retrieve HTML content from the URL');
+    }
+    return html;
+}
+// Puppeteer로 동적 페이지 처리
+async function fetchWithPuppeteer(url) {
+    const browser = await puppeteer.launch({
+        headless: true,
+        args: ['--no-sandbox', '--disable-setuid-sandbox']
+    });
+    try {
+        const page = await browser.newPage();
+        await page.setUserAgent('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36');
+        // 불필요한 리소스 차단
+        await page.setRequestInterception(true);
+        page.on('request', (req) => {
+            const resourceType = req.resourceType();
+            if (['stylesheet', 'font', 'image', 'media'].includes(resourceType)) {
+                req.abort();
+            }
+            else {
+                req.continue();
+            }
+        });
+        await page.goto(url, {
+            waitUntil: 'networkidle2',
+            timeout: 30000
+        });
+        // 페이지에서 불필요한 요소들 제거
+        await page.evaluate(() => {
+            // 제거할 요소들
+            const unwantedSelectors = [
+                'nav', 'header', 'footer', 'aside', 'sidebar',
+                '.nav', '.navbar', '.navigation', '.menu',
+                '.header', '.footer', '.sidebar', '.aside',
+                '.advertisement', '.ad', '.ads', '.banner',
+                '.social', '.share', '.sharing',
+                '.cookie', '.popup', '.modal',
+                '.newsletter', '.subscription',
+                '.related', '.recommended', '.suggestions',
+                '.comments', '.comment-section',
+                '[class*="nav"]', '[class*="menu"]',
+                '[class*="ad"]', '[class*="banner"]',
+                '[id*="nav"]', '[id*="menu"]',
+                '[id*="ad"]', '[id*="banner"]'
+            ];
+            unwantedSelectors.forEach(selector => {
+                const elements = document.querySelectorAll(selector);
+                elements.forEach(el => el.remove());
+            });
+            // 미디어 및 스크립트 요소 제거
+            const tagsToRemove = [
+                'img', 'video', 'audio', 'picture', 'source', 'track',
+                'script', 'style', 'noscript', 'iframe', 'embed', 'object'
+            ];
+            tagsToRemove.forEach(tag => {
+                const elements = document.querySelectorAll(tag);
+                elements.forEach(el => el.remove());
+            });
+        });
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        return await page.content();
+    }
+    finally {
+        await browser.close();
+    }
+}
+// HTML 전처리 함수 - 불필요한 태그들 완전 제거
 function cleanHtml(html) {
-    // 불필요한 태그들 완전 제거
     const tagsToRemove = [
         'script', 'style', 'noscript', 'iframe', 'embed', 'object',
         'form', 'input', 'button', 'select', 'textarea',
-        'svg', 'canvas', 'video', 'audio'
+        'svg', 'canvas', 'video', 'audio', 'img', 'picture', 'source', 'track'
     ];
     let cleaned = html;
+    // 태그와 내용 모두 제거
     tagsToRemove.forEach(tag => {
         const regex = new RegExp(`<${tag}[^>]*>.*?<\/${tag}>`, 'gis');
         cleaned = cleaned.replace(regex, '');
@@ -144,13 +145,63 @@ function cleanHtml(html) {
         const selfClosingRegex = new RegExp(`<${tag}[^>]*\/?>`, 'gi');
         cleaned = cleaned.replace(selfClosingRegex, '');
     });
+    // a 태그는 내용만 유지하고 태그는 제거
+    cleaned = cleaned.replace(/<a[^>]*>(.*?)<\/a>/gis, '$1');
     // 주석 제거
     cleaned = cleaned.replace(/<!--[\s\S]*?-->/g, '');
     return cleaned;
 }
+// Turndown 서비스 설정
+function createTurndownService() {
+    const turndownService = new TurndownService({
+        headingStyle: 'atx',
+        codeBlockStyle: 'fenced',
+        bulletListMarker: '-',
+        emDelimiter: '*',
+        strongDelimiter: '**',
+        linkStyle: 'inlined'
+    });
+    // 링크는 텍스트만 유지
+    turndownService.addRule('links', {
+        filter: 'a',
+        replacement: function (content) {
+            return content;
+        }
+    });
+    // 이미지 완전 제거
+    turndownService.addRule('images', {
+        filter: 'img',
+        replacement: function () {
+            return '';
+        }
+    });
+    // 표 전체: 헤더와 구분선 자동 추가
+    turndownService.addRule('tables', {
+        filter: ['table'],
+        replacement: function (content, node) {
+            // 표의 행 추출
+            const rows = Array.from(node.querySelectorAll('tr'));
+            if (rows.length === 0)
+                return '';
+            // 첫 번째 행이 헤더인지 확인
+            const headerCells = Array.from(rows[0].children).filter(child => child.nodeName === 'TH' || child.nodeName === 'TD');
+            const header = headerCells.map(cell => cell.textContent?.trim() || '');
+            const headerLine = '| ' + header.join(' | ') + ' |';
+            const separatorLine = '| ' + header.map(() => '---').join(' | ') + ' |';
+            // 나머지 행들
+            const bodyLines = rows.slice(1).map(row => {
+                const cells = Array.from(row.children).filter(child => child.nodeName === 'TD' || child.nodeName === 'TH');
+                const cellTexts = cells.map(cell => cell.textContent?.trim() || '');
+                return '| ' + cellTexts.join(' | ') + ' |';
+            }).filter(line => line.replace(/\|/g, '').trim().length > 0);
+            return '\n' + headerLine + '\n' + separatorLine + '\n' + bodyLines.join('\n') + '\n';
+        }
+    });
+    // 표 행/셀 규칙 제거 (tables에서 직접 처리)
+    return turndownService;
+}
 // 메인 컨텐츠 추출 함수
 function extractMainContent(document) {
-    // 메인 컨텐츠를 담고 있을 가능성이 높은 선택자들 (우선순위 순)
     const mainSelectors = [
         'main',
         '[role="main"]',
@@ -163,98 +214,36 @@ function extractMainContent(document) {
         '.page-content',
         '#content',
         '#main-content',
-        '#article',
-        '.container .content',
-        '.wrapper .content'
+        '#article'
     ];
-    // 제목을 찾기 위한 선택자들
-    const titleSelectors = ['h1', 'title', '.title', '.headline', '[class*="title"]'];
-    let mainElement = null;
     // 메인 컨텐츠 찾기
     for (const selector of mainSelectors) {
         const element = document.querySelector(selector);
         if (element && element.textContent && element.textContent.trim().length > 200) {
-            mainElement = element;
-            break;
+            return element.outerHTML;
         }
     }
     // 메인 컨텐츠를 찾지 못했으면 body에서 불필요한 부분 제거 후 사용
-    if (!mainElement) {
-        const body = document.body;
-        if (body) {
-            // 불필요한 요소들 제거
-            const unwantedSelectors = [
-                'nav', 'header', 'footer', 'aside',
-                '.nav', '.navbar', '.navigation', '.menu',
-                '.header', '.footer', '.sidebar', '.aside',
-                '.advertisement', '.ad', '.ads', '.banner',
-                '.social', '.share', '.sharing',
-                '.cookie', '.popup', '.modal',
-                '.newsletter', '.subscription',
-                '.related', '.recommended', '.suggestions',
-                '.comments', '.comment-section'
-            ];
-            unwantedSelectors.forEach(selector => {
-                const elements = body.querySelectorAll(selector);
-                elements.forEach(el => el.remove());
-            });
-            mainElement = body;
-        }
+    const body = document.body;
+    if (body) {
+        const unwantedSelectors = [
+            'nav', 'header', 'footer', 'aside',
+            '.nav', '.navbar', '.navigation', '.menu',
+            '.header', '.footer', '.sidebar', '.aside',
+            '.advertisement', '.ad', '.ads', '.banner',
+            '.social', '.share', '.sharing',
+            '.cookie', '.popup', '.modal',
+            '.newsletter', '.subscription',
+            '.related', '.recommended', '.suggestions',
+            '.comments', '.comment-section'
+        ];
+        unwantedSelectors.forEach(selector => {
+            const elements = body.querySelectorAll(selector);
+            elements.forEach(el => el.remove());
+        });
+        return body.outerHTML;
     }
-    if (!mainElement) {
-        return document.documentElement.outerHTML;
-    }
-    // 제목 추가 (메인 컨텐츠에 없는 경우)
-    let title = '';
-    for (const selector of titleSelectors) {
-        const titleElement = document.querySelector(selector);
-        if (titleElement && titleElement.textContent) {
-            title = titleElement.textContent.trim();
-            break;
-        }
-    }
-    // 제목이 메인 컨텐츠에 없으면 추가
-    if (title && !mainElement.textContent?.includes(title)) {
-        const titleHtml = `<h1>${title}</h1>`;
-        return titleHtml + mainElement.outerHTML;
-    }
-    return mainElement.outerHTML;
-}
-// 마크다운 후처리 함수
-function cleanMarkdown(markdown) {
-    let cleaned = markdown;
-    // 연속된 빈 줄을 최대 2개로 제한
-    cleaned = cleaned.replace(/\n{3,}/g, '\n\n');
-    // 불필요한 링크 텍스트 패턴 제거
-    const unwantedPatterns = [
-        /\[Skip to .*?\]\(.*?\)/gi,
-        /\[Menu\]\(.*?\)/gi,
-        /\[Home\]\(.*?\)/gi,
-        /\[Login\]\(.*?\)/gi,
-        /\[Sign up\]\(.*?\)/gi,
-        /\[Subscribe\]\(.*?\)/gi,
-        /\[Newsletter\]\(.*?\)/gi,
-        /\[Cookie.*?\]\(.*?\)/gi,
-        /\[Privacy.*?\]\(.*?\)/gi,
-        /\[Terms.*?\]\(.*?\)/gi,
-    ];
-    unwantedPatterns.forEach(pattern => {
-        cleaned = cleaned.replace(pattern, '');
-    });
-    // 단독으로 있는 특수문자들 제거
-    cleaned = cleaned.replace(/^[•\-\*\+]\s*$/gm, '');
-    // 짧은 줄들 (3글자 이하) 중 의미없는 것들 제거
-    cleaned = cleaned.replace(/^.{1,3}$/gm, (match) => {
-        if (/^[a-zA-Z\s]*$/.test(match) && !['Yes', 'No', 'OK'].includes(match.trim())) {
-            return '';
-        }
-        return match;
-    });
-    // 연속된 빈 줄 다시 정리
-    cleaned = cleaned.replace(/\n{3,}/g, '\n\n');
-    // 앞뒤 공백 제거
-    cleaned = cleaned.trim();
-    return cleaned;
+    return document.documentElement.outerHTML;
 }
 // Define a tool that converts web pages to markdown
 server.tool('web-to-markdown', 'Tool to convert a web page URL to markdown format', {
