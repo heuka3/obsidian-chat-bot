@@ -6,6 +6,14 @@ import { z } from "zod";
 import {JSDOM} from 'jsdom';
 import puppeteer from 'puppeteer';
 import TurndownService from 'turndown';
+// vertexaisearch.cloud.google.com 중개 URL을 실제 URL로 변환 (HEAD 요청)
+async function resolveFinalUrlHead(groundingUrl: string): Promise<string> {
+  const response = await fetch(groundingUrl, {
+    method: "HEAD",
+    redirect: "follow"
+  });
+  return response.url;
+}
 
 // Create the MCP server instance
 const server = new McpServer({
@@ -13,10 +21,25 @@ const server = new McpServer({
   version: "1.0.0"
 });
 
-export async function urlToMarkdown(url: string): Promise<string> {
+
+export async function urlToMarkdown(url: string): Promise<{ markdown: string, resolvedURL: string }> {
   try {
+    let resolvedURL: string = "";
+    // url에 vertexaisearch.cloud.google.com이 포함되어 있으면 실제 URL로 변환
+    if (url.includes('vertexaisearch.cloud.google.com')) {
+      console.log('Resolving URL from vertexaisearch.cloud.google.com...');
+      try {
+        const resolved = await resolveFinalUrlHead(url);
+        if (resolved && resolved !== url) {
+          resolvedURL = resolved;
+          console.log(`Resolved URL: ${resolvedURL}`);
+        }
+      } catch (e) {
+        // 변환 실패 시 원래 url 사용
+      }
+    }
+
     let html = await fetchHtml(url);
-    
     // HTML 전처리 - 불필요한 요소들 제거
     html = cleanHtml(html);
 
@@ -29,7 +52,19 @@ export async function urlToMarkdown(url: string): Promise<string> {
     let markdown = turndownService.turndown(mainContent);
     // 두 번 이상 연속된 개행을 한 번으로 치환
     markdown = markdown.replace(/\n{2,}/g, '\n');
-    return markdown.trim();
+
+    // resolvedURL이 있으면 마크다운의 헤더/Source 부분을 새로 작성
+    let headerBlock = '';
+    if (resolvedURL) {
+      const generatedDate = new Date().toISOString();
+      headerBlock = `# ${resolvedURL}\n\nSource: ${resolvedURL}\nGenerated: ${generatedDate}\n\n---\n`;
+    } else {
+      const generatedDate = new Date().toISOString();
+      headerBlock = `# ${url}\n\nSource: ${url}\nGenerated: ${generatedDate}\n\n---\n`;
+    }    
+    markdown = headerBlock + markdown.trim();
+
+    return {markdown: markdown.trim(), resolvedURL: resolvedURL ? resolvedURL : url};
   } catch (error) {
     throw new Error(`Failed to convert URL to markdown: ${error instanceof Error ? error.message : 'Unknown error'}`);
   }
@@ -298,12 +333,16 @@ server.tool(
   },
   async ({ url }) => {
     try {
-      const markdown = await urlToMarkdown(url);
+      const {markdown, resolvedURL} = await urlToMarkdown(url);
       return {
         content: [
           {
             type: "text",
             text: markdown
+          },
+          {
+            type: "text",
+            text: resolvedURL
           }
         ]
       };

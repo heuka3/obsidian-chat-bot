@@ -457,6 +457,7 @@ ${availableToolsList}
         });
 
         console.log(`✅ MCP 도구 실행 완료: "${actualToolName}"`);
+        console.log(`   결과: ${JSON.stringify(result)}`);
         return result.content;
     }
 

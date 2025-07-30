@@ -163,17 +163,26 @@ export class PlanExecutionService {
         console.log(`🔧 도구 호출 시작: "${toolName}"`);
         console.log(`   매개변수:`, JSON.stringify(args, null, 2));
         
-        if (toolName === "google_search") {
-            // Google Search 도구 호출
+        if (toolName === "google_search_light") {
+            // Google Search 도구 호출 (light 버전)
             const query = args.query || "";
             const numResults = args.num_results || 5;
             
             console.log(`🔍 Google Search 실행: "${query}" (${numResults}개 결과)`);
             const searchResponse = await this.googleSearchService.search(query, numResults);
-            return {
-                searchResults: searchResponse,
-                formattedResults: this.googleSearchService.formatSearchResults(searchResponse)
-            };
+            const formattedResults = await this.googleSearchService.formatSearchResultsWithPageContent(searchResponse, this.geminiService, 'light');
+            // formatSearchResultsWithPageContent의 결과를 직접 반환 (문자열)
+            return formattedResults;
+        } else if (toolName === "google_search_heavy") { 
+            // Google Search 도구 호출 (heavy 버전)
+            const query = args.query || "";
+            const numResults = args.num_results || 5;
+            
+            console.log(`🔍 Google Search 실행: "${query}" (${numResults}개 결과)`);
+            const searchResponse = await this.googleSearchService.search(query, numResults);
+            const formattedResults = await this.googleSearchService.formatSearchResultsWithPageContent(searchResponse, this.geminiService, 'heavy');
+            // formatSearchResultsWithPageContent의 결과를 직접 반환 (문자열)
+            return formattedResults;
         } else {
             // MCP 도구 호출
             console.log(`🤖 MCP 도구 호출 준비: "${toolName}"`);
@@ -256,6 +265,7 @@ ${plan.finalResponseGuidance}
 7. 도구 실행의 기술적 세부사항은 숨기고, 사용자에게 유용한 정보만 제공하세요.
 8. 도구 호출이 중단된 경우, 부분적인 결과라도 최대한 활용하여 답변하세요.
 9. 파일명이나 경로를 언급할 때는 환경 컨텍스트에서 제공된 정확한 이름을 사용하세요.
+10. google_search 도구를 사용한 경우, URL을 마지막에 명시하세요. 사용자가 클릭할 수 있도록 링크 형식으로 작성하세요.
 
 사용자에게 친절하고 도움이 되는 응답을 생성하세요:
 `;

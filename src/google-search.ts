@@ -1,4 +1,5 @@
 import { GoogleGenAI } from "@google/genai";
+import { GeminiService } from "./gemini-service";
 
 // TODO: 각 url에 대해 마크다운으로 변환하여 그 소스를 제공하는건 mcp 도구를 이용해 구현해보자.
 
@@ -6,6 +7,7 @@ export interface GoogleSearchResult {
     title: string;
     url: string;
     snippet: string;
+    pageContent?: string; // MCP로 가져온 웹페이지 마크다운 내용
 }
 
 export interface GoogleSearchResponse {
@@ -51,7 +53,7 @@ export class GoogleSearchService {
             
             const results: GoogleSearchResult[] = [];
 
-            // grounding chunks에서 웹 결과 추출
+            // grounding chunks에서 웹 결과 추출 (groundingUrl 그대로 사용)
             for (let i = 0; i < Math.min(groundingChunks.length, numResults); i++) {
                 const chunk = groundingChunks[i];
                 if (chunk.web?.uri && chunk.web?.title) {
@@ -59,7 +61,6 @@ export class GoogleSearchService {
                     const relatedSupport = groundingSupports.find(support => 
                         support.groundingChunkIndices?.includes(i)
                     );
-                    
                     const snippet = relatedSupport?.segment?.text || 
                                   "grounding chunk에서 관련된 텍스트를 찾을 수 없습니다.";
 
@@ -98,14 +99,54 @@ export class GoogleSearchService {
         }
     }
 
-    // 검색 결과를 텍스트로 변환
-    formatSearchResults(searchResponse: GoogleSearchResponse): string {
-        const results = searchResponse.groundResults.map((result, index) => {
-            return `${index + 1}. ${result.title}
-   URL: ${result.url}
-   URL 내용 요약: ${result.snippet}`;
-        }).join('\n\n');
+    /**
+     * 검색 결과를 텍스트로 변환 + 각 URL의 웹페이지 내용을 MCP tool로 가져와 pageContent에 추가
+     * @param searchResponse GoogleSearchResponse
+     * @param geminiService GeminiService 인스턴스
+     */
+    async formatSearchResultsWithPageContent(
+        searchResponse: GoogleSearchResponse,
+        geminiService: GeminiService,
+        mode: 'light' | 'heavy' = 'heavy'
+    ): Promise<string> {
+        let resultsWithContent: string[];
+        if (mode === 'light') {
+            // 각 결과에 대해 웹페이지 내용을 추가하지 않음
+            resultsWithContent = searchResponse.groundResults.map((result, index) => {
+                return `${index + 1}. ${result.title}\nURL: ${result.url}\nURL 내용 요약: ${result.snippet}`;
+            });
+        } else {
+            // heavy 모드: 각 결과에 대해 웹페이지 내용을 가져와 pageContent에 추가
+            resultsWithContent = await Promise.all(
+                searchResponse.groundResults.map(async (result, index) => {
+                    let pageContent = "";
+                    let resolvedURL = result.url; // 기본 URL
+                    try {
+                        // MCP tool 호출
+                        const mcpResult = await geminiService.callMCPTool(
+                            "web_read_web_to_markdown",
+                            { url: result.url }
+                        );
+                        // callMCPTool이 result.content를 반환한다면, mcpResult는 배열임
+                        let rawContent = mcpResult?.[0]?.text || "(페이지 내용을 가져올 수 없습니다)";
+                        resolvedURL = mcpResult?.[1]?.text || resolvedURL;
+                        // 2000자 제한, 너무 길면 자르고 안내 추가
+                        if (rawContent.length > 2000) {
+                            pageContent = rawContent.substring(0, 2000) + "\n...(이하 생략)";
+                        } else {
+                            pageContent = rawContent;
+                        }
+                    } catch (err) {
+                        pageContent = "(페이지 내용을 가져오는 중 오류 발생)";
+                    }
+                    return `${index + 1}. ${result.title}\nURL: ${resolvedURL}\nURL 내용 요약: ${result.snippet}\n---\n[페이지 내용]\n${pageContent}\n---`;
+                })
+            );
+        }
 
-        return `검색어: "${searchResponse.query}"\n총 ${searchResponse.total_results}개 결과\n출력 응답: ${searchResponse.responseText}\n\n${results}`;
+        const finalResult = `검색어: "${searchResponse.query}"\n총 ${searchResponse.total_results}개 결과\n출력 응답: ${searchResponse.responseText}\n\n출처:\n\n${resultsWithContent.join('\n\n')}`;
+        return finalResult;
     }
 }
+
+

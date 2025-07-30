@@ -50,10 +50,28 @@ export class PlanToolSelectService {
             });
         });
 
-        // Google Search 도구 추가
+        // Google Search 도구 추가 (heavy, light 모드 분리)
         this.availableTools.push({
-            name: "google_search",
-            description: "Search the web using Google to find current information, news, articles, and general knowledge about any topic. This tool provides search results with relevant URLs and content snippets and markdownified content of each URL.",
+            name: "google_search_heavy",
+            description: "[Heavy] Perform a Google web search to find current, up-to-date information, and for each result, fetch and include the full content of the web page (converted to markdown). Use this when you need not only the search result URLs and snippets, but also the actual content of each linked page.",
+            parameters: {
+                type: "object",
+                properties: {
+                    query: {
+                        type: "string",
+                        description: "The search query to execute"
+                    },
+                    num_results: {
+                        type: "integer",
+                        description: "Number of results to return (default: 5, max: 10)"
+                    }
+                },
+                required: ["query"]
+            }
+        });
+        this.availableTools.push({
+            name: "google_search_light",
+            description: "[Light] Perform a Google web search to find current, up-to-date information and return only the URLs and summary snippets for each result. The actual content of the linked web pages is NOT fetched or included. Use this for fast, lightweight search when you only need links and brief context.",
             parameters: {
                 type: "object",
                 properties: {

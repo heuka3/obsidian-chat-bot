@@ -40,8 +40,8 @@ async function processUrls() {
       
       try {
         // Convert URL to markdown
-        const markdown = await urlToMarkdown(url);
-        
+        const {markdown, resolvedURL} = await urlToMarkdown(url);
+
         // Generate a safe filename from URL
         const urlObj = new URL(url);
         const hostname = urlObj.hostname.replace(/[^a-zA-Z0-9]/g, '_');
@@ -50,9 +50,9 @@ async function processUrls() {
         
         // Write markdown to file
         const outputPath = path.join(outputDir, filename);
-        const fullContent = `# ${url}\n\nSource: ${url}\nGenerated: ${new Date().toISOString()}\n\n---\n\n${markdown}`;
+        //const fullContent = `# ${url}\n\nSource: ${url}\nGenerated: ${new Date().toISOString()}\n\n---\n\n${markdown}`;
         
-        fs.writeFileSync(outputPath, fullContent, 'utf-8');
+        fs.writeFileSync(outputPath, markdown, 'utf-8');
         console.log(`✅ Successfully saved: ${filename}`);
         
         // Add delay between requests to be respectful
