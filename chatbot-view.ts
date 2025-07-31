@@ -260,6 +260,54 @@ export class ChatbotView extends ItemView {
             this.clearChatHistory(messagesContainer);
         });
 
+        // google-search 활성화 버튼
+        const googleSearchButton = buttonContainer.createEl("button", {
+            text: "🌐",
+            cls: "chatbot-search-google-button"
+        });
+
+        // google-search 활성화 버튼 클릭 이벤트
+        googleSearchButton.addEventListener("click", () => {
+            if (this.currentProvider === 'gemini') {
+                if (this.geminiService.isGoogleSearchEnabled()) {
+                    this.geminiService.disableSearchTool('google-search');
+                    googleSearchButton.removeClass("active");
+                    googleSearchButton.title = "Google Search가 비활성화되었습니다.";
+                } else {
+                    this.geminiService.enableSearchTool('google-search');
+                    googleSearchButton.addClass("active");
+                    googleSearchButton.title = "Google Search가 활성화되었습니다.";
+                }
+                new Notice(`Google Search가 ${this.geminiService.isGoogleSearchEnabled() ? '활성화' : '비활성화'}되었습니다.`);
+            } else {
+                new Notice("검색 도구는 Gemini 제공자에서만 활성화할 수 있습니다.");
+            }
+        });
+
+        // perplexity-search 활성화 버튼
+        const perplexitySearchButton = buttonContainer.createEl("button", {
+            text: "📚",
+            cls: "chatbot-search-perplexity-button"
+        });
+
+        // perplexity-search 활성화 버튼 클릭 이벤트
+        perplexitySearchButton.addEventListener("click", () => {
+            if (this.currentProvider === 'gemini') {
+                if (this.geminiService.isPerplexitySearchEnabled()) {
+                    this.geminiService.disableSearchTool('perplexity-search');
+                    perplexitySearchButton.removeClass("active");
+                    perplexitySearchButton.title = "Perplexity Search가 비활성화되었습니다.";
+                } else {
+                    this.geminiService.enableSearchTool('perplexity-search');
+                    perplexitySearchButton.addClass("active");
+                    perplexitySearchButton.title = "Perplexity Search가 활성화되었습니다.";
+                }
+                new Notice(`Perplexity Search가 ${this.geminiService.isPerplexitySearchEnabled() ? '활성화' : '비활성화'}되었습니다.`);
+            } else {
+                new Notice("검색 도구는 Gemini 제공자에서만 활성화할 수 있습니다.");
+            }
+        });
+
         // Plan & Execute 모드 토글 버튼 (Gemini 제공자일 때만 표시)
         const planExecuteButton = buttonContainer.createEl("button", {
             text: "🧠",
@@ -646,19 +694,17 @@ export class ChatbotView extends ItemView {
                             }
                         );
                     } else {
-                        response = await this.geminiService.sendMessage(model, this.mentionedNotesInfo);
+                        response = await this.geminiService.sendMessageLegacy(model, this.mentionedNotesInfo);
                     }
-                } else {
-                    response = await currentService.sendMessage(model);
                 }
 
                 // 로딩 메시지 제거
                 loadingMessage.remove();
 
                 // AI 응답 추가 (UI)
-                this.addMessage("assistant", response, messagesContainer);
+                this.addMessage("assistant", response!, messagesContainer);
                 // 대화 내역에 AI 응답 추가 (서비스)
-                currentService.addMessage("assistant", response);
+                currentService.addMessage("assistant", response!);
             } catch (error) {
                 // 로딩 메시지 제거
                 loadingMessage.remove();

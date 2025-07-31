@@ -124,7 +124,7 @@ export class GoogleSearchService {
                     try {
                         // MCP tool 호출
                         const mcpResult = await geminiService.callMCPTool(
-                            "web_read_web_to_markdown",
+                            "web_read_web_to_markdown", // TODO 이 도구 이름은 나중에 설정으로 넣어줄 수 있게끔 만들어주기.
                             { url: result.url }
                         );
                         // callMCPTool이 result.content를 반환한다면, mcpResult는 배열임

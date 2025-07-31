@@ -80,6 +80,10 @@ export class GeminiService {
     private planExecutionService: PlanExecutionService | null = null;
     private usePlanExecute: boolean = false; // 기본값은 false (기존 방식 사용)
 
+    // search tool 설정
+    private isGoogleSearchOn: boolean = false;
+    private isPerplexitySearchOn: boolean = false;
+
     constructor(apiKey?: string, app?: any) {
         if (apiKey) {
             this.setApiKey(apiKey);
@@ -462,112 +466,6 @@ ${availableToolsList}
     }
 
     /**
-     * Gemini API를 사용해서 메시지 전송 (MCP Function Calling 지원)
-     * model: string - 사용할 모델명 (예: "gemini-2.5-flash")
-     * mentionedNotes: Array<{name: string, path: string}> - 언급된 노트 목록 (이름과 경로)
-     */
-    async sendMessage(model: string = 'gemini-2.5-flash', mentionedItems: Array<{name: string, path: string, type?: 'note' | 'webview' | 'pdf', url?: string}> = []): Promise<string> {
-        if (!this.isConfigured()) {
-            throw new Error('Gemini API key가 설정되지 않았습니다.');
-        }
-
-        // 멘션된 아이템 디버깅 로그
-        console.log('🔍 Gemini Service - 받은 멘션된 아이템:', mentionedItems);
-        mentionedItems.forEach((item, index) => {
-            console.log(`  [${index}] ${item.name} (타입: ${item.type})`);
-            console.log(`      경로: ${item.path}`);
-            if (item.url) console.log(`      URL: ${item.url}`);
-        });
-
-        // 최근 user/assistant 메시지 10쌍(21개) 추출
-        const filtered = this.conversationHistory.filter(m => m.role === 'user' || m.role === 'assistant');
-        const latest_context = filtered.slice(-21);
-
-        // 가장 최근 user 메시지 추출
-        if (latest_context.length === 0) throw new Error("No user message found.");
-        const lastUserMsgRealIdx = latest_context.length - 1;
-        const lastUserMsg = latest_context[lastUserMsgRealIdx];
-
-        // instruction용 대화 맥락
-        const contextForInstruction = latest_context.slice(0, lastUserMsgRealIdx);
-        const conversationContext = contextForInstruction.map(m => 
-            `${m.role === 'user' ? 'User' : 'Assistant'}: ${m.content}`
-        ).join('\n');
-
-        // Plan & Execute 모드 확인
-        if (this.usePlanExecute && this.planToolSelectService && this.planExecutionService) {
-            console.log("🎯 Plan & Execute 모드로 실행");
-            
-            try {
-                // Obsidian vault 이름 추출
-                const vaultName = this.getVaultName();
-                
-                // 환경 정보 구성
-                const environmentContext = `=== OBSIDIAN 환경 정보 ===
-- Obsidian Vault: "${vaultName}"
-- 플러그인: AI Chatbot (Plan & Execute 모드)
-- 위치: Obsidian 내부 플러그인 환경
-${mentionedItems.length > 0 ? `- 사용자가 언급한 항목: ${mentionedItems.map(item => {
-    if (item.type === 'webview') {
-        return `"${item.name}" (웹뷰: ${item.url})`;
-    } else if (item.type === 'pdf') {
-        // PDF 파일의 경우 절대 경로를 생성하여 전달
-        const absolutePath = this.getFileAbsolutePath(item.path);
-        console.log(`📄 PDF 파일 경로 처리: 
-          - 파일명: ${item.name}
-          - 원본 경로: ${item.path}
-          - 절대 경로: ${absolutePath}
-          - 한글 포함: ${/[ㄱ-ㅎ|ㅏ-ㅣ|가-힣]/.test(item.name)}
-          - 공백 포함: ${/\s/.test(item.name)}`);
-        return `"${item.name}" (PDF 파일: ${item.path}, 절대경로: ${absolutePath})`;
-    } else {
-        return `"${item.name}" (경로: ${item.path})`;
-    }
-}).join(', ')}` : ''}
-
-**중요 컨텍스트:**
-- 당신은 Obsidian vault "${vaultName}" 내에서 작동하고 있습니다.
-- 파일 경로나 vault 관련 작업을 수행할 때는 현재 vault 이름을 고려하세요.
-- 사용자가 vault나 노트에 대한 질문을 할 때는 현재 "${vaultName}" vault 컨텍스트에서 답변하세요.
-- 사용자가 웹뷰를 언급한 경우, 해당 웹사이트의 내용을 참고하여 답변하세요.
-- 사용자가 PDF 파일을 언급한 경우, 절대경로를 통해 해당 PDF 파일에 접근할 수 있습니다.
-- **PDF 파일 경로 처리 시 주의사항:**
-  * 위에 제공된 절대경로는 한글 파일명을 포함하여 정확한 전체 경로입니다
-  * PDF 도구 호출 시 절대경로를 정확히 그대로 사용해야 합니다
-  * 한글, 공백, 특수문자가 포함된 파일명도 절대경로 그대로 전달하세요
-===============================`;
-
-                console.log('🌍 Plan & Execute 모드 - 환경 컨텍스트:', environmentContext);
-
-                // 1. 계획 수립
-                const plan = await this.planToolSelectService.createExecutionPlan(
-                    lastUserMsg.content,
-                    conversationContext,
-                    environmentContext
-                );
-
-                // 2. 계획 실행
-                const response = await this.planExecutionService.executePlan(
-                    lastUserMsg.content,
-                    plan,
-                    conversationContext,
-                    environmentContext
-                );
-
-                return response;
-            } catch (error) {
-                console.error('Plan & Execute 모드 실행 실패:', error);
-                console.log('기존 모드로 폴백합니다.');
-                // 기존 모드로 폴백
-            }
-        }
-
-        // 기존 Function Calling 모드
-        console.log("🔧 기존 Function Calling 모드로 실행");
-        return await this.sendMessageLegacy(model, mentionedItems, conversationContext);
-    }
-
-    /**
      * Plan & Execute 모드에서 진행 상황을 콜백으로 알려주면서 메시지 전송
      */
     async sendMessageWithProgress(
@@ -685,23 +583,28 @@ ${mentionedItems.length > 0 ? `- 사용자가 언급한 항목: ${mentionedItems
                 });
 
                 return result;
+            } else if(executionPlan.steps.length === 0) {
+                // 계획 수립이 되었지만 실행할 단계가 없는 경우
+                progressCallback({ status: "계획 수립 완료, 실행할 단계가 없으므로 기본 모드(도구 사용 x)로 전환합니다." });
+                console.log("계획 수립 완료, 실행할 단계가 없습니다. 기본 모드(도구 사용 x)로 전환합니다.");
+                return await this.sendMessageWithoutTools(model, lastUserMsg, conversationContext, executionPlan.overallGoal, executionPlan.plan);
             } else {
                 // 계획 수립 실패 시 기존 모드로 폴백
                 progressCallback({ status: "계획 수립 실패, 기본 모드로 전환..." });
-                return await this.sendMessageLegacy(model, mentionedItems, conversationContext);
+                return await this.sendMessageLegacy(model, mentionedItems);
             }
         } catch (error) {
             console.error("Plan & Execute 모드 실행 중 오류:", error);
-            progressCallback({ status: "오류 발생, 기본 모드로 전환..." });
+            progressCallback({ status: "오류 발생, 기본 모드(도구 1개만 사용 가능)로 전환..." });
             // 오류 발생 시 기존 모드로 폴백
-            return await this.sendMessageLegacy(model, mentionedItems, conversationContext);
+            return await this.sendMessageLegacy(model, mentionedItems);
         }
     }
 
     /**
      * 기존 Function Calling 방식 (폴백용)
      */
-    private async sendMessageLegacy(model: string, mentionedItems: Array<{name: string, path: string, type?: 'note' | 'webview' | 'pdf', url?: string}>, conversationContext: string): Promise<string> {
+    async sendMessageLegacy(model: string, mentionedItems: Array<{name: string, path: string, type?: 'note' | 'webview' | 'pdf', url?: string}>): Promise<string> {
         // 최근 user/assistant 메시지 10쌍(21개) 추출
         const filtered = this.conversationHistory.filter(m => m.role === 'user' || m.role === 'assistant');
         const latest_context = filtered.slice(-21);
@@ -867,10 +770,78 @@ ${mentionedItems.length > 0 ? `- 사용자가 언급한 항목: ${mentionedItems
         }
     }
 
+    async sendMessageWithoutTools(
+        model: string,
+        lastUserMsg: ChatMessage,
+        conversationContext: string,
+        overallGoal: string,
+        plan: string
+    ): Promise<string> {
+        // 순수 LLM 답변만 생성 (Function Calling/Tool 사용 X)
+        // context, goal, plan, user message를 최대한 활용
+        try {
+            // 시스템 컨텍스트(도구 안내 등) 없이, 환경/목표/계획/대화 맥락만 포함
+            let prompt = `=== 목표(Goal) ===\n${overallGoal}\n` +
+                `\n` +
+                `=== 계획(Plan) ===\n${plan}\n` +
+                `\n`;
+
+            if (conversationContext && conversationContext.trim().length > 0) {
+                prompt += `=== 최근 대화 맥락 ===\n${conversationContext}\n\n`;
+            }
+
+            prompt += `=== User의 요청 ===\n${lastUserMsg.content}\n`;
+
+            prompt += `\n\n[답변 작성 가이드]\n` +
+                `- 반드시 한국어로 답변하세요.\n` +
+                `- Obsidian Vault 환경에 맞는 답변을 하세요.\n` +
+                `- 최대한 자세하고 친절하게 설명하세요.\n` +
+                `- 핵심 정보뿐 아니라, 관련된 배경지식, 원리, 추가 설명, 주의사항, 실전 팁 등도 함께 제공하세요.\n` +
+                `- 필요하다면 예시, 근거, 참고자료, 단계별 설명, 표, 리스트 등 다양한 형식으로 답변을 풍부하게 만드세요.\n` +
+                `- 사용자가 이해하기 쉽도록 논리적이고 체계적으로 답변을 구성하세요.\n` +
+                `- 너무 짧게 요약하지 말고, 충분한 분량으로 설명하세요.\n` +
+                `- 만약 추가로 도움이 될 만한 정보가 있다면 마지막에 \"[추가 정보]\" 섹션으로 안내하세요.`;
+
+            const contents = [
+                {
+                    role: "user",
+                    parts: [{ text: prompt }]
+                }
+            ];
+
+            const result: any = await this.genAI!.models.generateContent({
+                model: model,
+                contents
+            });
+
+            // Gemini API 응답 파싱
+            let responseText = "";
+            if (result.text) {
+                responseText = result.text;
+            } else if (result.candidates && result.candidates.length > 0) {
+                const candidate = result.candidates[0];
+                if (candidate.content && candidate.content.parts) {
+                    const textParts = candidate.content.parts
+                        .filter((part: any) => part.text)
+                        .map((part: any) => part.text)
+                        .join("");
+                    responseText = textParts;
+                }
+            }
+            return responseText || "No response received";
+        } catch (error) {
+            console.error('Gemini API Error (sendMessageWithoutTools):', error);
+            if (error instanceof Error) {
+                throw new Error(`Gemini API 오류: ${error.message}`);
+            }
+            throw new Error('알 수 없는 Gemini API 오류가 발생했습니다.');
+        }
+    }
+
     // Plan & Execute 서비스 업데이트
     private updatePlanExecuteServices() {
         if (this.planToolSelectService) {
-            this.planToolSelectService.updateAvailableTools(this.availableTools, this.toolNameMapping);
+            this.planToolSelectService.updateAvailableTools(this.availableTools, this.toolNameMapping, this.isGoogleSearchOn, this.isPerplexitySearchOn);
             console.log(`🔄 Plan & Execute 서비스 업데이트: ${this.availableTools.length}개 도구`);
         }
     }
@@ -884,6 +855,40 @@ ${mentionedItems.length > 0 ? `- 사용자가 언급한 항목: ${mentionedItems
     // Plan & Execute 모드 상태 확인
     isPlanExecuteMode(): boolean {
         return this.usePlanExecute;
+    }
+
+    // search tool 설정
+
+    // Google Search와 Perplexity Search 활성화 여부
+    isGoogleSearchEnabled(): boolean {
+        return this.isGoogleSearchOn;
+    }
+
+    isPerplexitySearchEnabled(): boolean {
+        return this.isPerplexitySearchOn;
+    }
+
+    // Google Search와 Perplexity Search 활성화 및 비활성화
+    disableSearchTool(target: string) {
+        if (target === 'google-search') {
+            this.isGoogleSearchOn = false;
+        } else if (target === 'perplexity-search') {
+            this.isPerplexitySearchOn = false;
+        }
+        if (this.planToolSelectService) {
+            this.planToolSelectService.updateAvailableTools(this.availableTools, this.toolNameMapping, this.isGoogleSearchOn, this.isPerplexitySearchOn);
+        }
+    }
+
+    enableSearchTool(target: string) {
+        if (target === 'google-search') {
+            this.isGoogleSearchOn = true;
+        } else if (target === 'perplexity-search') {
+            this.isPerplexitySearchOn = true;
+        }
+        if (this.planToolSelectService) {
+            this.planToolSelectService.updateAvailableTools(this.availableTools, this.toolNameMapping, this.isGoogleSearchOn, this.isPerplexitySearchOn);
+        }
     }
 
     // 서비스 정리

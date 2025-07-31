@@ -1,3 +1,45 @@
+.chatbot-search-google-button,
+.chatbot-search-perplexity-button {
+    width: 24px;
+    height: 24px;
+    padding: 0;
+    background: var(--background-modifier-border-hover);
+    color: var(--text-muted);
+    border: none;
+    border-radius: 50%;
+    cursor: pointer;
+    font-size: 14px;
+    font-weight: normal;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    transition: all 0.2s ease;
+    margin-right: 4px;
+}
+
+.chatbot-search-google-button:hover,
+.chatbot-search-perplexity-button:hover {
+    background: var(--background-modifier-border-focus);
+    color: var(--text-normal);
+    transform: scale(1.05);
+}
+
+.chatbot-search-google-button.active {
+    background: #34a853;
+    color: #fff;
+}
+.chatbot-search-google-button.active:hover {
+    background: #1e7e34;
+}
+
+.chatbot-search-perplexity-button.active {
+    background: #7c3aed;
+    color: #fff;
+}
+.chatbot-search-perplexity-button.active:hover {
+    background: #5b21b6;
+}
 /* Chatbot Plugin Styles */
 
 .chatbot-container {
