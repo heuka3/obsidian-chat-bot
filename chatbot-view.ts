@@ -1,9 +1,11 @@
-import { ItemView, WorkspaceLeaf, Notice, MarkdownRenderer } from "obsidian";
+import { ItemView, WorkspaceLeaf, Notice, MarkdownRenderer, Menu } from "obsidian";
 import { OpenAIService, ChatMessage } from "./src/openai-service";
 import { GeminiService } from "./src/gemini-service";
 import { PlanProgressData } from "./src/types";
 
 export const VIEW_TYPE_CHATBOT = "chatbot-view";
+
+type ExecutionMode = 'plan-execute' | 'single-tool' | 'no-tools';
 
 // 멘션된 아이템 정보 타입 확장
 interface MentionedItemInfo {
@@ -27,7 +29,8 @@ export class ChatbotView extends ItemView {
     private selectedNoteIndex: number = -1; // 선택된 노트 인덱스
     private isShowingNoteAutocomplete: boolean = false; // 자동완성 표시 여부
     private currentMentionStart: number = -1; // '@' 시작 위치
-    private updatePlanExecuteButtonState: () => void = () => {}; // Plan & Execute 버튼 상태 업데이트 함수
+    private executionMode: ExecutionMode = 'plan-execute'; // Default mode
+    private updateExecutionModeButtonState: () => void = () => {}; // Plan & Execute 버튼 상태 업데이트 함수
     private mentionedFilesContainer: HTMLElement | null = null; // 멘션된 파일들 표시 컨테이너
     private planProgressContainer: HTMLElement | null = null; // Plan & Execute 진행 상황 컨테이너
 
@@ -81,7 +84,7 @@ export class ChatbotView extends ItemView {
         }
         
         // Plan & Execute 버튼 상태 업데이트
-        this.updatePlanExecuteButtonState();
+        this.updateExecutionModeButtonState();
     }
 
     // 현재 활성화된 AI 서비스 반환
@@ -308,54 +311,81 @@ export class ChatbotView extends ItemView {
             }
         });
 
-        // Plan & Execute 모드 토글 버튼 (Gemini 제공자일 때만 표시)
-        const planExecuteButton = buttonContainer.createEl("button", {
-            text: "🧠",
-            cls: "chatbot-plan-execute-button"
+        // Execution Mode Selection Button (Gemini only)
+        const executionModeButton = buttonContainer.createEl("button", {
+            text: "🧠", // Initial icon
+            cls: "chatbot-execution-mode-button"
         });
 
-        // Plan & Execute 모드 토글 이벤트
-        planExecuteButton.addEventListener("click", () => {
+        executionModeButton.addEventListener("click", (event: MouseEvent) => {
             if (this.currentProvider === 'gemini') {
-                const currentMode = this.geminiService.isPlanExecuteMode();
-                this.geminiService.setPlanExecuteMode(!currentMode);
-                
-                // 버튼 스타일 업데이트
-                if (this.geminiService.isPlanExecuteMode()) {
-                    planExecuteButton.addClass("active");
-                    planExecuteButton.title = "Plan & Execute 모드 활성화됨 (클릭하여 비활성화)";
-                } else {
-                    planExecuteButton.removeClass("active");
-                    planExecuteButton.title = "Plan & Execute 모드 비활성화됨 (클릭하여 활성화)";
-                }
-                
-                new Notice(`Plan & Execute 모드 ${this.geminiService.isPlanExecuteMode() ? '활성화' : '비활성화'}`);
+                const menu = new Menu();
+
+                menu.addItem((item) =>
+                    item
+                        .setTitle("Plan & Execute")
+                        .setIcon("brain")
+                        .onClick(() => {
+                            this.executionMode = 'plan-execute';
+                            this.updateExecutionModeButtonState();
+                            new Notice("Execution mode set to: Plan & Execute");
+                        }));
+
+                menu.addItem((item) =>
+                    item
+                        .setTitle("Single Tool")
+                        .setIcon("wrench")
+                        .onClick(() => {
+                            this.executionMode = 'single-tool';
+                            this.updateExecutionModeButtonState();
+                            new Notice("Execution mode set to: Single Tool");
+                        }));
+
+                menu.addItem((item) =>
+                    item
+                        .setTitle("No Tools")
+                        .setIcon("pencil")
+                        .onClick(() => {
+                            this.executionMode = 'no-tools';
+                            this.updateExecutionModeButtonState();
+                            new Notice("Execution mode set to: No Tools");
+                        }));
+
+                menu.showAtMouseEvent(event);
             } else {
-                new Notice("Plan & Execute 모드는 Gemini 제공자에서만 사용할 수 있습니다.");
+                new Notice("Execution modes are only available for the Gemini provider.");
             }
         });
 
-        // 초기 Plan & Execute 버튼 상태 설정
-        const updatePlanExecuteButton = () => {
+        const updateExecutionModeButton = () => {
             if (this.currentProvider === 'gemini') {
-                planExecuteButton.style.display = "block";
-                if (this.geminiService.isPlanExecuteMode()) {
-                    planExecuteButton.addClass("active");
-                    planExecuteButton.title = "Plan & Execute 모드 활성화됨 (클릭하여 비활성화)";
-                } else {
-                    planExecuteButton.removeClass("active");
-                    planExecuteButton.title = "Plan & Execute 모드 비활성화됨 (클릭하여 활성화)";
+                executionModeButton.style.display = "block";
+                let icon = "🧠";
+                let title = "";
+                switch (this.executionMode) {
+                    case 'plan-execute':
+                        icon = "🧠";
+                        title = "Plan & Execute Mode";
+                        break;
+                    case 'single-tool':
+                        icon = "🔧";
+                        title = "Single Tool Mode";
+                        break;
+                    case 'no-tools':
+                        icon = "✍️";
+                        title = "No Tools Mode";
+                        break;
                 }
+                executionModeButton.setText(icon);
+                executionModeButton.setAttribute("title", title);
             } else {
-                planExecuteButton.style.display = "none";
+                executionModeButton.style.display = "none";
             }
         };
 
-        // 초기 상태 설정
-        updatePlanExecuteButton();
+        updateExecutionModeButton();
 
-        // 제공자 변경 시 버튼 상태 업데이트를 위한 메서드 추가
-        this.updatePlanExecuteButtonState = updatePlanExecuteButton;
+        this.updateExecutionModeButtonState = updateExecutionModeButton;
 
         // 전송 버튼 (이모지 사용)
         const sendButton = buttonContainer.createEl("button", {
@@ -463,6 +493,7 @@ export class ChatbotView extends ItemView {
         this.updateMentionedFilesDisplay();
     }
 
+    
     // Plan & Execute 진행 상황을 표시하는 메서드들
     private createPlanProgressMessage(messagesContainer: HTMLElement): HTMLElement {
         const progressEl = messagesContainer.createEl("div");
@@ -653,12 +684,8 @@ export class ChatbotView extends ItemView {
             }
 
             // Plan & Execute 모드 여부 확인
-            const isPlanExecuteMode = this.currentProvider === 'gemini' && this.geminiService.isPlanExecuteMode();
-            console.log('🎯 Plan & Execute 모드 확인:', {
-                currentProvider: this.currentProvider,
-                isPlanExecuteMode: isPlanExecuteMode,
-                geminiServiceMode: this.geminiService.isPlanExecuteMode()
-            });
+            const isPlanExecuteMode = this.currentProvider === 'gemini' && this.executionMode === 'plan-execute';
+            console.log('🎯 Execution Mode:', this.executionMode);
             
             // 로딩 메시지 또는 Plan & Execute 진행 상황 표시
             let loadingMessage: HTMLElement;
@@ -677,25 +704,34 @@ export class ChatbotView extends ItemView {
                 const model = this.plugin?.settings?.model || 
                     (this.currentProvider === 'openai' ? 'gpt-4.1' : 'gemini-2.5-flash');
                 
-
-                
                 // AI API 호출
                 let response: string;
                 if (this.currentProvider === 'gemini') {
                     console.log('🔍 Gemini로 전달하는 멘션 정보:', this.mentionedNotesInfo);
                     
-                    if (isPlanExecuteMode) {
-                        // Plan & Execute 모드에서는 진행 상황을 업데이트하면서 응답 받기
-                        response = await this.geminiService.sendMessageWithProgress(
-                            model, 
-                            this.mentionedNotesInfo,
-                            (progressData: PlanProgressData) => {
-                                this.updatePlanProgress(loadingMessage, progressData);
-                            }
-                        );
-                    } else {
-                        response = await this.geminiService.sendMessageLegacy(model, this.mentionedNotesInfo);
+                    switch (this.executionMode) {
+                        case 'plan-execute':
+                            response = await this.geminiService.sendMessageWithProgress(
+                                model, 
+                                this.mentionedNotesInfo,
+                                (progressData: PlanProgressData) => {
+                                    this.updatePlanProgress(loadingMessage, progressData);
+                                }
+                            );
+                            break;
+                        case 'single-tool':
+                            response = await this.geminiService.sendMessageLegacy(model, this.mentionedNotesInfo);
+                            break;
+                        case 'no-tools':
+                            const lastUserMsg = this.geminiService.getHistory().slice(-1)[0];
+                            const conversationContext = this.geminiService.getHistory().slice(0, -1).slice(-20).map(m => `${m.role}: ${m.content}`).join('\n');
+                            response = await this.geminiService.sendMessageWithoutTools(model, lastUserMsg, conversationContext);
+                            break;
+                        default:
+                            response = await this.geminiService.sendMessageLegacy(model, this.mentionedNotesInfo);
                     }
+                } else { // OpenAI
+                    response = await this.openaiService.sendMessage(model);
                 }
 
                 // 로딩 메시지 제거

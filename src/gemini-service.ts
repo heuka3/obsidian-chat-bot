@@ -78,7 +78,6 @@ export class GeminiService {
     // 새로운 Plan & Execute 서비스
     private planToolSelectService: PlanToolSelectService | null = null;
     private planExecutionService: PlanExecutionService | null = null;
-    private usePlanExecute: boolean = false; // 기본값은 false (기존 방식 사용)
 
     // search tool 설정
     private isGoogleSearchOn: boolean = false;
@@ -493,8 +492,8 @@ ${availableToolsList}
         ).join('\n');
 
         // Plan & Execute 모드만 지원
-        if (!this.usePlanExecute || !this.planToolSelectService || !this.planExecutionService) {
-            throw new Error("Plan & Execute 모드가 활성화되지 않았습니다.");
+        if (!this.planToolSelectService || !this.planExecutionService) {
+            throw new Error("Plan & Execute 서비스가 초기화되지 않았습니다.");
         }
 
         console.log("🎯 Plan & Execute 모드로 실행 (진행 상황 추적)");
@@ -774,16 +773,25 @@ ${mentionedItems.length > 0 ? `- 사용자가 언급한 항목: ${mentionedItems
         model: string,
         lastUserMsg: ChatMessage,
         conversationContext: string,
-        overallGoal: string,
-        plan: string
+        overallGoal?: string,
+        plan?: string
     ): Promise<string> {
+
         // 순수 LLM 답변만 생성 (Function Calling/Tool 사용 X)
         // context, goal, plan, user message를 최대한 활용
         try {
+            // overallGoal, plan이 없으면 기본값 사용
+            const goalText = (overallGoal && overallGoal.trim().length > 0)
+                ? overallGoal
+                : '사용자의 요청을 최대한 정확하고 친절하게 해결하는 것';
+            const planText = (plan && plan.trim().length > 0)
+                ? plan
+                : '1. 사용자의 요청을 이해한다.\n2. 필요한 정보를 정리한다.\n3. 논리적이고 체계적으로 답변을 작성한다.';
+
             // 시스템 컨텍스트(도구 안내 등) 없이, 환경/목표/계획/대화 맥락만 포함
-            let prompt = `=== 목표(Goal) ===\n${overallGoal}\n` +
+            let prompt = `=== 목표(Goal) ===\n${goalText}\n` +
                 `\n` +
-                `=== 계획(Plan) ===\n${plan}\n` +
+                `=== 계획(Plan) ===\n${planText}\n` +
                 `\n`;
 
             if (conversationContext && conversationContext.trim().length > 0) {
@@ -794,7 +802,6 @@ ${mentionedItems.length > 0 ? `- 사용자가 언급한 항목: ${mentionedItems
 
             prompt += `\n\n[답변 작성 가이드]\n` +
                 `- 반드시 한국어로 답변하세요.\n` +
-                `- Obsidian Vault 환경에 맞는 답변을 하세요.\n` +
                 `- 최대한 자세하고 친절하게 설명하세요.\n` +
                 `- 핵심 정보뿐 아니라, 관련된 배경지식, 원리, 추가 설명, 주의사항, 실전 팁 등도 함께 제공하세요.\n` +
                 `- 필요하다면 예시, 근거, 참고자료, 단계별 설명, 표, 리스트 등 다양한 형식으로 답변을 풍부하게 만드세요.\n` +
@@ -846,16 +853,7 @@ ${mentionedItems.length > 0 ? `- 사용자가 언급한 항목: ${mentionedItems
         }
     }
 
-    // Plan & Execute 모드 설정
-    setPlanExecuteMode(enabled: boolean) {
-        this.usePlanExecute = enabled;
-        console.log(`🎯 Plan & Execute 모드: ${enabled ? '활성화' : '비활성화'}`);
-    }
-
-    // Plan & Execute 모드 상태 확인
-    isPlanExecuteMode(): boolean {
-        return this.usePlanExecute;
-    }
+    
 
     // search tool 설정
 
