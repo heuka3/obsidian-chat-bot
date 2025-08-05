@@ -31,9 +31,9 @@ const schema = z.object({
     .min(1, "At least one tag must be specified")
     .refine(
       tags => tags.every(validateTag),
-      "Invalid tag format. Tags must contain only letters, numbers, and forward slashes for hierarchy."
+      "Invalid tag format. Tags must contain only letters, numbers, Korean characters, and forward slashes for hierarchy."
     )
-    .describe("Array of tags to add (e.g., 'status/active', 'project/docs')"),
+    .describe("Array of tags to add (e.g., 'status/active', 'project/docs', '한국어태그')"),
   location: z.enum(['frontmatter', 'content', 'both'])
     .optional()
     .describe("Where to add tags (default: both)"),

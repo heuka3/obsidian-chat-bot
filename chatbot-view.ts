@@ -1233,6 +1233,9 @@ export class ChatbotView extends ItemView {
                     cls: 'chatbot-note-autocomplete-item'
                 });
                 
+                // 원본 아이템 데이터를 DOM에 저장 (키보드 네비게이션용)
+                (itemEl as any)._itemData = item;
+                
                 // 웹뷰 타입 표시를 위한 data 속성 추가
                 if (item.type === 'webview') {
                     itemEl.setAttribute('data-type', 'webview');
@@ -1308,6 +1311,14 @@ export class ChatbotView extends ItemView {
     private selectNote(noteName: string, itemInfo?: {name: string, path: string, type?: 'note' | 'webview' | 'pdf', url?: string}) {
         if (!this.messageInput) return;
         
+        console.log('🔍 selectNote 호출:', {
+            noteName,
+            itemInfo,
+            hasItemInfo: !!itemInfo,
+            itemInfoPath: itemInfo?.path,
+            itemInfoType: itemInfo?.type
+        });
+        
         const currentValue = this.messageInput.value;
         const cursorPos = this.messageInput.selectionStart || 0;
         
@@ -1331,6 +1342,7 @@ export class ChatbotView extends ItemView {
             
             // 상세 정보 업데이트
             if (itemInfo) {
+                console.log('🔍 itemInfo가 있음 - 경로 사용:', itemInfo.path);
                 this.mentionedNotesInfo.push({
                     name: noteName,
                     path: itemInfo.path,
@@ -1338,6 +1350,7 @@ export class ChatbotView extends ItemView {
                     url: itemInfo.url
                 });
             } else {
+                console.log('🔍 itemInfo가 없음 - 기본 경로 생성:', `${noteName}.md`);
                 // 기본 정보 추가
                 this.mentionedNotesInfo.push({
                     name: noteName,
@@ -1345,6 +1358,8 @@ export class ChatbotView extends ItemView {
                     type: 'note'
                 });
             }
+            
+            console.log('🔍 최종 mentionedNotesInfo:', this.mentionedNotesInfo);
             
             // 멘션된 파일들 UI 업데이트
             this.updateMentionedFilesDisplay();
@@ -1376,43 +1391,57 @@ export class ChatbotView extends ItemView {
                 event.preventDefault();
                 if (this.selectedNoteIndex >= 0) {
                     const selectedItem = items[this.selectedNoteIndex];
-                    const noteNameElement = selectedItem.querySelector('.chatbot-note-autocomplete-item-title');
-                    if (noteNameElement) {
-                        let displayName = noteNameElement.textContent || '';
-                        
-                        // DOM에서 타입 정보 추출
-                        const iconElement = selectedItem.querySelector('.chatbot-note-autocomplete-item-icon');
-                        const icon = iconElement?.textContent || '📝';
-                        const pathElement = selectedItem.querySelector('.chatbot-note-autocomplete-item-path');
-                        const path = pathElement?.textContent || `${displayName}.md`;
-                        
-                        let type: 'note' | 'webview' | 'pdf' = 'note';
-                        let noteName = displayName;
-                        
-                        if (icon === '🌐') {
-                            type = 'webview';
-                        } else if (icon === '📄') {
-                            type = 'pdf';
-                            // PDF인 경우 확장자 제거
-                            if (displayName.endsWith('.pdf')) {
-                                noteName = displayName.slice(0, -4);
+                    
+                    // DOM에 저장된 원본 아이템 데이터 사용
+                    const itemData = (selectedItem as any)._itemData;
+                    if (itemData) {
+                        console.log('🔍 키보드 네비게이션 - 원본 아이템 데이터 사용:', itemData);
+                        this.selectNote(itemData.name, itemData);
+                    } else {
+                        // 폴백: 기존 방식 (하지만 path 처리 개선)
+                        const noteNameElement = selectedItem.querySelector('.chatbot-note-autocomplete-item-title');
+                        if (noteNameElement) {
+                            let displayName = noteNameElement.textContent || '';
+                            
+                            // DOM에서 타입 정보 추출
+                            const iconElement = selectedItem.querySelector('.chatbot-note-autocomplete-item-icon');
+                            const icon = iconElement?.textContent || '📝';
+                            const pathElement = selectedItem.querySelector('.chatbot-note-autocomplete-item-path');
+                            
+                            let type: 'note' | 'webview' | 'pdf' = 'note';
+                            let noteName = displayName;
+                            let path = '';
+                            
+                            if (icon === '🌐') {
+                                type = 'webview';
+                                path = pathElement?.textContent || displayName;
+                            } else if (icon === '📄') {
+                                type = 'pdf';
+                                // PDF인 경우 확장자 제거
+                                if (displayName.endsWith('.pdf')) {
+                                    noteName = displayName.slice(0, -4);
+                                }
+                                path = pathElement?.textContent || `${noteName}.pdf`;
+                            } else {
+                                // 노트인 경우 확장자 제거
+                                if (displayName.endsWith('.md')) {
+                                    noteName = displayName.slice(0, -3);
+                                }
+                                // path는 pathElement가 있으면 사용, 없으면 noteName + .md
+                                path = pathElement?.textContent || `${noteName}.md`;
                             }
-                        } else {
-                            // 노트인 경우 확장자 제거
-                            if (displayName.endsWith('.md')) {
-                                noteName = displayName.slice(0, -3);
-                            }
+                            
+                            // 아이템 정보 구성
+                            const itemInfo = {
+                                name: noteName,
+                                path: path,
+                                type: type,
+                                url: type === 'webview' ? path : undefined
+                            };
+                            
+                            console.log('🔍 키보드 네비게이션 - 폴백 모드:', itemInfo);
+                            this.selectNote(noteName, itemInfo);
                         }
-                        
-                        // 아이템 정보 구성
-                        const itemInfo = {
-                            name: noteName,
-                            path: path,
-                            type: type,
-                            url: type === 'webview' ? path : undefined
-                        };
-                        
-                        this.selectNote(noteName, itemInfo);
                     }
                 }
                 break;
@@ -1530,6 +1559,11 @@ export class ChatbotView extends ItemView {
                             item.name === noteName && item.type === 'note'
                         );
                         if (!alreadyMentioned) {
+                            console.log('🔍 extractMentionedNotes - 마크다운 파일 추가:', {
+                                name: noteName,
+                                path: matchingMarkdown.path,
+                                type: 'note'
+                            });
                             mentionedItemInfo.push({
                                 name: noteName,
                                 path: matchingMarkdown.path,

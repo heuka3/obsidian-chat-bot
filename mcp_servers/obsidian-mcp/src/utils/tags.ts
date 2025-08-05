@@ -70,7 +70,7 @@ export function getRelatedTags(tag: string, allTags: string[]): {
 
 /**
  * Validates a tag format
- * Allows: #tag, tag, tag/subtag, project/active
+ * Allows: #tag, tag, tag/subtag, project/active, 한국어태그
  * Disallows: empty strings, spaces, special characters except '/'
  */
 export function validateTag(tag: string): boolean {
@@ -80,8 +80,8 @@ export function validateTag(tag: string): boolean {
   // Check if tag is empty
   if (!tag) return false;
   
-  // Basic tag format validation
-  const TAG_REGEX = /^[a-zA-Z0-9]+(\/[a-zA-Z0-9]+)*$/;
+  // Basic tag format validation - now supports Unicode characters including Korean
+  const TAG_REGEX = /^[\w\u{AC00}-\u{D7AF}]+(\/[\w\u{AC00}-\u{D7AF}]+)*$/u;
   return TAG_REGEX.test(tag);
 }
 
@@ -155,7 +155,8 @@ export function extractTags(content: string): string[] {
   const tags = new Set<string>();
   
   // Match hashtags that aren't inside code blocks or HTML comments
-  const TAG_PATTERN = /(?<!`)#[a-zA-Z0-9][a-zA-Z0-9/]*(?!`)/g;
+  // Updated to support Unicode characters including Korean
+  const TAG_PATTERN = /(?<!`)#[\w\u{AC00}-\u{D7AF}][\w\u{AC00}-\u{D7AF}/]*(?!`)/gu;
   
   // Split content into lines
   const lines = content.split('\n');
@@ -335,7 +336,7 @@ export function removeInlineTags(
     if (line.includes('-->')) inHtmlComment = false;
     if (inCodeBlock || inHtmlComment) {
       // Preserve tags in code blocks and comments
-      const tags = line.match(/(?<!`)#[a-zA-Z0-9][a-zA-Z0-9/]*(?!`)/g) || [];
+      const tags = line.match(/(?<!`)#[\w\u{AC00}-\u{D7AF}][\w\u{AC00}-\u{D7AF}/]*(?!`)/gu) || [];
       tags.forEach(tag => {
         preserved.push({
           tag: tag.slice(1),
@@ -349,7 +350,7 @@ export function removeInlineTags(
 
     // Process tags in regular content
     return line.replace(
-      /(?<!`)#[a-zA-Z0-9][a-zA-Z0-9/]*(?!`)/g,
+      /(?<!`)#[\w\u{AC00}-\u{D7AF}][\w\u{AC00}-\u{D7AF}/]*(?!`)/gu,
       (match) => {
         const tag = match.slice(1); // Remove # prefix
         const normalizedTag = normalizeTag(tag, normalize);

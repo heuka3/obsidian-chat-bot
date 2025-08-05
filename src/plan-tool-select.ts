@@ -141,6 +141,9 @@ ${toolsDescription}
 - 불필요한 도구 사용은 피하세요.
 - 도구 없이 답변할 수 있다면 빈 steps 배열을 반환하세요.
 - 사용자의 의도를 정확히 파악하여 관련 있는 도구만 사용하세요.
+
+**도구 선택 시 참고사항**
+- control_obsidian_create_note를 사용하는 경우 control_obsidian_add_tag 도구를 사용하여 내용에 알맞은 태그를 추가하세요.
 `;
         console.log("🔍 계획 수립을 위한 프롬프트:", prompt);
         const response = await this.genAI.models.generateContent({
