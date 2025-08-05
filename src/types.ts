@@ -7,8 +7,7 @@ export interface MCPServer {
 }
 
 export interface ChatbotPluginSettings {
-    aiProvider: 'openai' | 'gemini';
-    openaiApiKey: string;
+    aiProvider: 'gemini';
     geminiApiKey: string;
     model?: string;
     maxTokens?: number;

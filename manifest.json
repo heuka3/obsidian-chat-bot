@@ -1,10 +1,10 @@
 {
-	"id": "openai-chatbot",
-	"name": "OpenAI Chatbot",
+	"id": "gemini-chatbot",
+	"name": "Gemini Chatbot",
 	"version": "1.0.0",
 	"minAppVersion": "0.15.0",
-	"description": "AI-powered chatbot using OpenAI API integrated into Obsidian workspace",
+	"description": "AI-powered chatbot using Gemini API integrated into Obsidian workspace",
 	"author": "heuka",
-	"authorUrl": "",
+	"authorUrl": "https://heuka.space",
 	"isDesktopOnly": false
 }

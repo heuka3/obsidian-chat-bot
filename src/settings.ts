@@ -2,10 +2,9 @@ import { PluginSettingTab, App, Setting, Notice } from "obsidian";
 import { ChatbotPluginSettings } from "./types";
 
 export const DEFAULT_SETTINGS: ChatbotPluginSettings = {
-    aiProvider: "openai",
-    openaiApiKey: "",
+    aiProvider: "gemini",
     geminiApiKey: "",
-    model: "gpt-4.1",
+    model: "gemini-2.5-flash",
     maxTokens: 1000,
     chatHistoryFolder: "ChatHistory",
     mcpServers: []
@@ -46,70 +45,29 @@ export class ChatbotSettingTab extends PluginSettingTab {
             text: "예시: ✅ my-obsidian-vault, my-notes  |  ❌ My Vault, 내 볼트, my_vault, MyVault"
         });
 
-        // AI 제공자 선택
+        // Gemini API Key
         new Setting(containerEl)
-            .setName("AI 제공자")
-            .setDesc("사용할 AI 서비스를 선택하세요. 현재는 gemini만 MCP 연결 가능합니다.")
-            .addDropdown(dropdown => {
-                dropdown
-                    .addOption("openai", "OpenAI")
-                    .addOption("gemini", "Google Gemini")
-                    .setValue(this.plugin.settings.aiProvider || "openai")
-                    .onChange(async (value: 'openai' | 'gemini') => {
-                        this.plugin.settings.aiProvider = value;
+            .setName("Gemini API Key")
+            .setDesc("Google Gemini API 키를 입력하세요.")
+            .addText(text => {
+                text
+                    .setPlaceholder("AIza...")
+                    .setValue(this.plugin.settings.geminiApiKey || "")
+                    .onChange(async (value) => {
+                        this.plugin.settings.geminiApiKey = value.trim();
                         await this.plugin.saveSettings();
-                        this.display();
                     });
             });
-
-        // OpenAI API Key
-        if (this.plugin.settings.aiProvider === 'openai') {
-            new Setting(containerEl)
-                .setName("OpenAI API Key")
-                .setDesc("OpenAI API 키를 입력하세요.")
-                .addText(text => {
-                    text
-                        .setPlaceholder("sk-...")
-                        .setValue(this.plugin.settings.openaiApiKey || "")
-                        .onChange(async (value) => {
-                            this.plugin.settings.openaiApiKey = value.trim();
-                            await this.plugin.saveSettings();
-                        });
-                });
-        }
-
-        // Gemini API Key
-        if (this.plugin.settings.aiProvider === 'gemini') {
-            new Setting(containerEl)
-                .setName("Gemini API Key")
-                .setDesc("Google Gemini API 키를 입력하세요.")
-                .addText(text => {
-                    text
-                        .setPlaceholder("AIza...")
-                        .setValue(this.plugin.settings.geminiApiKey || "")
-                        .onChange(async (value) => {
-                            this.plugin.settings.geminiApiKey = value.trim();
-                            await this.plugin.saveSettings();
-                        });
-                });
-        }
 
         // 모델 선택
         new Setting(containerEl)
             .setName("AI 모델")
-            .setDesc("사용할 AI 모델을 선택하세요.")
+            .setDesc("사용할 Gemini 모델을 선택하세요.")
             .addDropdown(dropdown => {
-                if (this.plugin.settings.aiProvider === 'openai') {
-                    dropdown
-                        .addOption("gpt-4o", "GPT-4o")
-                        .addOption("gpt-4.1", "GPT-4.1");
-                } else {
-                    dropdown
-                        .addOption("gemini-2.5-pro", "Gemini 2.5 Pro")
-                        .addOption("gemini-2.5-flash", "Gemini 2.5 Flash");
-                }
                 dropdown
-                    .setValue(this.plugin.settings.model || (this.plugin.settings.aiProvider === 'openai' ? "gpt-4o" : "gemini-2.5-pro"))
+                    .addOption("gemini-2.5-pro", "Gemini 2.5 Pro")
+                    .addOption("gemini-2.5-flash", "Gemini 2.5 Flash")
+                    .setValue(this.plugin.settings.model || "gemini-2.5-flash")
                     .onChange(async (value) => {
                         this.plugin.settings.model = value;
                         await this.plugin.saveSettings();
@@ -145,67 +103,65 @@ export class ChatbotSettingTab extends PluginSettingTab {
                     });
             });
 
-        // MCP 서버 설정 (Gemini일 때만)
-        if (this.plugin.settings.aiProvider === 'gemini') {
-            containerEl.createEl("h3", { text: "MCP 서버 설정" });
-            containerEl.createEl("p", { text: "MCP 서버를 등록하여 Gemini가 사용할 수 있는 도구를 확장할 수 있습니다.", cls: "setting-item-description" });
+        // MCP 서버 설정
+        containerEl.createEl("h3", { text: "MCP 서버 설정" });
+        containerEl.createEl("p", { text: "MCP 서버를 등록하여 Gemini가 사용할 수 있는 도구를 확장할 수 있습니다.", cls: "setting-item-description" });
 
-            new Setting(containerEl)
-                .setName("MCP 서버 추가")
-                .setDesc("새로운 MCP 서버를 추가합니다.")
-                .addButton(button => {
-                    button
-                        .setButtonText("서버 추가")
-                        .setCta()
-                        .onClick(() => {
-                            this.showMCPServerModal();
-                        });
-                });
+        new Setting(containerEl)
+            .setName("MCP 서버 추가")
+            .setDesc("새로운 MCP 서버를 추가합니다.")
+            .addButton(button => {
+                button
+                    .setButtonText("서버 추가")
+                    .setCta()
+                    .onClick(() => {
+                        this.showMCPServerModal();
+                    });
+            });
 
-            // 등록된 MCP 서버 목록
-            const mcpServers = this.plugin.settings.mcpServers || [];
-            if (mcpServers.length > 0) {
-                containerEl.createEl("h4", { text: "등록된 MCP 서버" });
-                mcpServers.forEach((server: any, index: number) => {
-                    const serverContainer = containerEl.createEl("div", { cls: "mcp-server-item" });
-                    new Setting(serverContainer)
-                        .setName(server.name)
-                        .setDesc(`경로: ${server.path}\n명령어: ${server.command || '미설정'}${server.args ? `\n인자: ${server.args}` : ''}`)
-                        .addToggle(toggle => {
-                            toggle
-                                .setValue(server.enabled)
-                                .onChange(async (value) => {
-                                    this.plugin.settings.mcpServers[index].enabled = value;
-                                    await this.plugin.saveSettings();
-                                    
-                                    // MCP 서버 설정 변경 알림
-                                    this.plugin.onMCPServersChanged();
-                                });
-                        })
-                        .addButton(button => {
-                            button
-                                .setButtonText("편집")
-                                .setTooltip("서버 설정 편집")
-                                .onClick(() => {
-                                    this.showMCPServerModal(index);
-                                });
-                        })
-                        .addButton(button => {
-                            button
-                                .setButtonText("삭제")
-                                .setWarning()
-                                .onClick(async () => {
-                                    this.plugin.settings.mcpServers.splice(index, 1);
-                                    await this.plugin.saveSettings();
-                                    
-                                    // MCP 서버 설정 변경 알림
-                                    this.plugin.onMCPServersChanged();
-                                    
-                                    this.display();
-                                });
-                        });
-                });
-            }
+        // 등록된 MCP 서버 목록
+        const mcpServers = this.plugin.settings.mcpServers || [];
+        if (mcpServers.length > 0) {
+            containerEl.createEl("h4", { text: "등록된 MCP 서버" });
+            mcpServers.forEach((server: any, index: number) => {
+                const serverContainer = containerEl.createEl("div", { cls: "mcp-server-item" });
+                new Setting(serverContainer)
+                    .setName(server.name)
+                    .setDesc(`경로: ${server.path}\n명령어: ${server.command || '미설정'}${server.args ? `\n인자: ${server.args}` : ''}`)
+                    .addToggle(toggle => {
+                        toggle
+                            .setValue(server.enabled)
+                            .onChange(async (value) => {
+                                this.plugin.settings.mcpServers[index].enabled = value;
+                                await this.plugin.saveSettings();
+                                
+                                // MCP 서버 설정 변경 알림
+                                this.plugin.onMCPServersChanged();
+                            });
+                    })
+                    .addButton(button => {
+                        button
+                            .setButtonText("편집")
+                            .setTooltip("서버 설정 편집")
+                            .onClick(() => {
+                                this.showMCPServerModal(index);
+                            });
+                    })
+                    .addButton(button => {
+                        button
+                            .setButtonText("삭제")
+                            .setWarning()
+                            .onClick(async () => {
+                                this.plugin.settings.mcpServers.splice(index, 1);
+                                await this.plugin.saveSettings();
+                                
+                                // MCP 서버 설정 변경 알림
+                                this.plugin.onMCPServersChanged();
+                                
+                                this.display();
+                            });
+                    });
+            });
         }
     }
 

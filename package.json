@@ -1,7 +1,7 @@
 {
-	"name": "obsidian-openai-chatbot",
+	"name": "obsidian-gemini-chatbot",
 	"version": "1.0.0",
-	"description": "OpenAI powered chatbot plugin for Obsidian",
+	"description": "Gemini powered chatbot plugin for Obsidian",
 	"main": "main.js",
 	"scripts": {
 		"dev": "node esbuild.config.mjs",
@@ -11,7 +11,7 @@
 	"keywords": [
 		"obsidian",
 		"plugin",
-		"openai",
+		"gemini",
 		"chatbot",
 		"ai"
 	],
@@ -19,8 +19,7 @@
 	"license": "MIT",
 	"dependencies": {
 		"@google/genai": "^1.9.0",
-		"@modelcontextprotocol/sdk": "^1.15.1",
-		"openai": "^4.20.0"
+		"@modelcontextprotocol/sdk": "^1.15.1"
 	},
 	"devDependencies": {
 		"@types/node": "^16.11.6",

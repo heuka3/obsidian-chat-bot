@@ -1,7 +1,6 @@
 import { ItemView, WorkspaceLeaf, Notice, MarkdownRenderer, Menu } from "obsidian";
-import { OpenAIService, ChatMessage } from "./src/openai-service";
 import { GeminiService } from "./src/gemini-service";
-import { PlanProgressData } from "./src/types";
+import { PlanProgressData, ChatMessage } from "./src/types";
 
 export const VIEW_TYPE_CHATBOT = "chatbot-view";
 
@@ -16,9 +15,8 @@ interface MentionedItemInfo {
 }
 
 export class ChatbotView extends ItemView {
-    private openaiService: OpenAIService;
     private geminiService: GeminiService;
-    private currentProvider: 'openai' | 'gemini' = 'openai';
+    private currentProvider: 'gemini' = 'gemini';
     private isProcessing: boolean = false; // 중복 처리 방지 플래그
     private plugin: any; // 플러그인 인스턴스 참조
     private messageInput: HTMLTextAreaElement | null = null; // 입력 필드 참조
@@ -36,14 +34,12 @@ export class ChatbotView extends ItemView {
 
     constructor(leaf: WorkspaceLeaf, plugin?: any) {
         super(leaf);
-        this.openaiService = new OpenAIService();
         this.geminiService = new GeminiService(undefined, this.app); // app 인스턴스 전달
         this.plugin = plugin;
         
         // 플러그인이 있으면 초기 설정
         if (this.plugin && this.plugin.settings) {
-            this.currentProvider = this.plugin.settings.aiProvider || 'openai';
-            this.openaiService.setApiKey(this.plugin.settings.openaiApiKey);
+            this.currentProvider = 'gemini';
             this.geminiService.setApiKey(this.plugin.settings.geminiApiKey);
             
             // MCP 서버 설정은 onOpen에서만 수행
@@ -51,33 +47,20 @@ export class ChatbotView extends ItemView {
     }
 
     // API 키 업데이트 메서드
-    updateApiKey(apiKey: string, provider: 'openai' | 'gemini') {
-        if (provider === 'openai') {
-            this.openaiService.setApiKey(apiKey);
-        } else {
-            this.geminiService.setApiKey(apiKey);
-        }
+    updateApiKey(apiKey: string, provider: 'gemini') {
+        this.geminiService.setApiKey(apiKey);
         console.log(`${provider} API key updated in ChatbotView:`, apiKey ? 'Key set' : 'Key cleared');
     }
 
-    // AI 제공자 업데이트 메서드
-    updateProvider(provider: 'openai' | 'gemini') {
-        this.currentProvider = provider;
+    // AI 제공자 업데이트 메서드 (Gemini만 지원)
+    updateProvider(provider: 'gemini') {
+        // provider는 항상 'gemini'이므로 별도 처리 불필요
         console.log('AI provider updated in ChatbotView:', provider);
         
-        // 대화 기록을 현재 제공자의 서비스로 동기화
-        const currentService = this.getCurrentService();
-        const history = this.getCurrentService().getHistory();
-        if (history.length > 0) {
-            // 이전 제공자의 대화 기록을 새 제공자로 복사
-            currentService.clearHistory();
-            history.forEach(msg => {
-                currentService.addMessage(msg.role, msg.content);
-            });
-        }
+        // 대화 기록은 이미 Gemini 서비스에 있으므로 별도 처리 불필요
         
-        // Gemini로 변경 시 MCP 서버 설정
-        if (provider === 'gemini' && this.plugin?.settings?.mcpServers) {
+        // MCP 서버 설정
+        if (this.plugin?.settings?.mcpServers) {
             this.geminiService.updateMCPServers(this.plugin.settings.mcpServers).catch(error => {
                 console.error('Error updating MCP servers on provider change:', error);
             });
@@ -87,9 +70,9 @@ export class ChatbotView extends ItemView {
         this.updateExecutionModeButtonState();
     }
 
-    // 현재 활성화된 AI 서비스 반환
-    private getCurrentService(): OpenAIService | GeminiService {
-        return this.currentProvider === 'openai' ? this.openaiService : this.geminiService;
+    // 현재 활성화된 AI 서비스 반환 (Gemini만 지원)
+    private getCurrentService(): GeminiService {
+        return this.geminiService;
     }
 
     // 모델 변경 시 호출되는 메서드 (대화 내역 초기화)
@@ -158,12 +141,11 @@ export class ChatbotView extends ItemView {
     async onOpen() {
         // 플러그인 설정에서 제공자와 API 키 재설정 (뷰가 열릴 때마다)
         if (this.plugin && this.plugin.settings) {
-            this.currentProvider = this.plugin.settings.aiProvider || 'openai';
-            this.openaiService.setApiKey(this.plugin.settings.openaiApiKey);
+            this.currentProvider = 'gemini';
             this.geminiService.setApiKey(this.plugin.settings.geminiApiKey);
             
             // Gemini 서비스에 MCP 서버 설정
-            if (this.currentProvider === 'gemini' && this.plugin.settings.mcpServers) {
+            if (this.plugin.settings.mcpServers) {
                 this.geminiService.updateMCPServers(this.plugin.settings.mcpServers).catch(error => {
                     console.error('Error updating MCP servers on open:', error);
                 });
@@ -271,20 +253,16 @@ export class ChatbotView extends ItemView {
 
         // google-search 활성화 버튼 클릭 이벤트
         googleSearchButton.addEventListener("click", () => {
-            if (this.currentProvider === 'gemini') {
-                if (this.geminiService.isGoogleSearchEnabled()) {
-                    this.geminiService.disableSearchTool('google-search');
-                    googleSearchButton.removeClass("active");
-                    googleSearchButton.title = "Google Search가 비활성화되었습니다.";
-                } else {
-                    this.geminiService.enableSearchTool('google-search');
-                    googleSearchButton.addClass("active");
-                    googleSearchButton.title = "Google Search가 활성화되었습니다.";
-                }
-                new Notice(`Google Search가 ${this.geminiService.isGoogleSearchEnabled() ? '활성화' : '비활성화'}되었습니다.`);
+            if (this.geminiService.isGoogleSearchEnabled()) {
+                this.geminiService.disableSearchTool('google-search');
+                googleSearchButton.removeClass("active");
+                googleSearchButton.title = "Google Search가 비활성화되었습니다.";
             } else {
-                new Notice("검색 도구는 Gemini 제공자에서만 활성화할 수 있습니다.");
+                this.geminiService.enableSearchTool('google-search');
+                googleSearchButton.addClass("active");
+                googleSearchButton.title = "Google Search가 활성화되었습니다.";
             }
+            new Notice(`Google Search가 ${this.geminiService.isGoogleSearchEnabled() ? '활성화' : '비활성화'}되었습니다.`);
         });
 
         // perplexity-search 활성화 버튼
@@ -295,20 +273,16 @@ export class ChatbotView extends ItemView {
 
         // perplexity-search 활성화 버튼 클릭 이벤트
         perplexitySearchButton.addEventListener("click", () => {
-            if (this.currentProvider === 'gemini') {
-                if (this.geminiService.isPerplexitySearchEnabled()) {
-                    this.geminiService.disableSearchTool('perplexity-search');
-                    perplexitySearchButton.removeClass("active");
-                    perplexitySearchButton.title = "Perplexity Search가 비활성화되었습니다.";
-                } else {
-                    this.geminiService.enableSearchTool('perplexity-search');
-                    perplexitySearchButton.addClass("active");
-                    perplexitySearchButton.title = "Perplexity Search가 활성화되었습니다.";
-                }
-                new Notice(`Perplexity Search가 ${this.geminiService.isPerplexitySearchEnabled() ? '활성화' : '비활성화'}되었습니다.`);
+            if (this.geminiService.isPerplexitySearchEnabled()) {
+                this.geminiService.disableSearchTool('perplexity-search');
+                perplexitySearchButton.removeClass("active");
+                perplexitySearchButton.title = "Perplexity Search가 비활성화되었습니다.";
             } else {
-                new Notice("검색 도구는 Gemini 제공자에서만 활성화할 수 있습니다.");
+                this.geminiService.enableSearchTool('perplexity-search');
+                perplexitySearchButton.addClass("active");
+                perplexitySearchButton.title = "Perplexity Search가 활성화되었습니다.";
             }
+            new Notice(`Perplexity Search가 ${this.geminiService.isPerplexitySearchEnabled() ? '활성화' : '비활성화'}되었습니다.`);
         });
 
         // Execution Mode Selection Button (Gemini only)
@@ -318,69 +292,62 @@ export class ChatbotView extends ItemView {
         });
 
         executionModeButton.addEventListener("click", (event: MouseEvent) => {
-            if (this.currentProvider === 'gemini') {
-                const menu = new Menu();
+            const menu = new Menu();
 
-                menu.addItem((item) =>
-                    item
-                        .setTitle("Plan & Execute")
-                        .setIcon("brain")
-                        .onClick(() => {
-                            this.executionMode = 'plan-execute';
-                            this.updateExecutionModeButtonState();
-                            new Notice("Execution mode set to: Plan & Execute");
-                        }));
+            menu.addItem((item) =>
+                item
+                    .setTitle("Plan & Execute")
+                    .setIcon("brain")
+                    .onClick(() => {
+                        this.executionMode = 'plan-execute';
+                        this.updateExecutionModeButtonState();
+                        new Notice("Execution mode set to: Plan & Execute");
+                    }));
 
-                menu.addItem((item) =>
-                    item
-                        .setTitle("Single Tool")
-                        .setIcon("wrench")
-                        .onClick(() => {
-                            this.executionMode = 'single-tool';
-                            this.updateExecutionModeButtonState();
-                            new Notice("Execution mode set to: Single Tool");
-                        }));
+            menu.addItem((item) =>
+                item
+                    .setTitle("Single Tool")
+                    .setIcon("wrench")
+                    .onClick(() => {
+                        this.executionMode = 'single-tool';
+                        this.updateExecutionModeButtonState();
+                        new Notice("Execution mode set to: Single Tool");
+                    }));
 
-                menu.addItem((item) =>
-                    item
-                        .setTitle("No Tools")
-                        .setIcon("pencil")
-                        .onClick(() => {
-                            this.executionMode = 'no-tools';
-                            this.updateExecutionModeButtonState();
-                            new Notice("Execution mode set to: No Tools");
-                        }));
+            menu.addItem((item) =>
+                item
+                    .setTitle("No Tools")
+                    .setIcon("pencil")
+                    .onClick(() => {
+                        this.executionMode = 'no-tools';
+                        this.updateExecutionModeButtonState();
+                        new Notice("Execution mode set to: No Tools");
+                    }));
 
-                menu.showAtMouseEvent(event);
-            } else {
-                new Notice("Execution modes are only available for the Gemini provider.");
-            }
+            menu.showAtMouseEvent(event);
         });
 
         const updateExecutionModeButton = () => {
-            if (this.currentProvider === 'gemini') {
-                executionModeButton.style.display = "block";
-                let icon = "🧠";
-                let title = "";
-                switch (this.executionMode) {
-                    case 'plan-execute':
-                        icon = "🧠";
-                        title = "Plan & Execute Mode";
-                        break;
-                    case 'single-tool':
-                        icon = "🔧";
-                        title = "Single Tool Mode";
-                        break;
-                    case 'no-tools':
-                        icon = "✍️";
-                        title = "No Tools Mode";
-                        break;
-                }
-                executionModeButton.setText(icon);
-                executionModeButton.setAttribute("title", title);
-            } else {
-                executionModeButton.style.display = "none";
+            // Gemini는 항상 지원하므로 항상 표시
+            executionModeButton.style.display = "block";
+            let icon = "🧠";
+            let title = "";
+            switch (this.executionMode) {
+                case 'plan-execute':
+                    icon = "🧠";
+                    title = "Plan & Execute Mode";
+                    break;
+                case 'single-tool':
+                    icon = "🔧";
+                    title = "Single Tool Mode";
+                    break;
+                case 'no-tools':
+                    icon = "✍️";
+                    title = "No Tools Mode";
+                    break;
             }
+            executionModeButton.setText(icon);
+            executionModeButton.setAttribute("title", title);
         };
 
         updateExecutionModeButton();
@@ -678,13 +645,12 @@ export class ChatbotView extends ItemView {
 
             // API 키가 설정되었는지 확인
             if (!currentService.isConfigured()) {
-                const providerName = this.currentProvider === 'openai' ? 'OpenAI' : 'Gemini';
-                this.addMessage("assistant", `⚠️ ${providerName} API 키가 설정되지 않았습니다. 설정에서 API 키를 설정해주세요.`, messagesContainer);
+                this.addMessage("assistant", `⚠️ Gemini API 키가 설정되지 않았습니다. 설정에서 API 키를 설정해주세요.`, messagesContainer);
                 return;
             }
 
             // Plan & Execute 모드 여부 확인
-            const isPlanExecuteMode = this.currentProvider === 'gemini' && this.executionMode === 'plan-execute';
+            const isPlanExecuteMode = this.executionMode === 'plan-execute';
             console.log('🎯 Execution Mode:', this.executionMode);
             
             // 로딩 메시지 또는 Plan & Execute 진행 상황 표시
@@ -701,37 +667,32 @@ export class ChatbotView extends ItemView {
 
             try {
                 // 현재 설정된 모델 가져오기
-                const model = this.plugin?.settings?.model || 
-                    (this.currentProvider === 'openai' ? 'gpt-4.1' : 'gemini-2.5-flash');
+                const model = this.plugin?.settings?.model || 'gemini-2.5-flash';
                 
-                // AI API 호출
+                // Gemini API 호출
                 let response: string;
-                if (this.currentProvider === 'gemini') {
-                    console.log('🔍 Gemini로 전달하는 멘션 정보:', this.mentionedNotesInfo);
-                    
-                    switch (this.executionMode) {
-                        case 'plan-execute':
-                            response = await this.geminiService.sendMessageWithProgress(
-                                model, 
-                                this.mentionedNotesInfo,
-                                (progressData: PlanProgressData) => {
-                                    this.updatePlanProgress(loadingMessage, progressData);
-                                }
-                            );
-                            break;
-                        case 'single-tool':
-                            response = await this.geminiService.sendMessageLegacy(model, this.mentionedNotesInfo);
-                            break;
-                        case 'no-tools':
-                            const lastUserMsg = this.geminiService.getHistory().slice(-1)[0];
-                            const conversationContext = this.geminiService.getHistory().slice(0, -1).slice(-20).map(m => `${m.role}: ${m.content}`).join('\n');
-                            response = await this.geminiService.sendMessageWithoutTools(model, lastUserMsg, conversationContext);
-                            break;
-                        default:
-                            response = await this.geminiService.sendMessageLegacy(model, this.mentionedNotesInfo);
-                    }
-                } else { // OpenAI
-                    response = await this.openaiService.sendMessage(model);
+                console.log('🔍 Gemini로 전달하는 멘션 정보:', this.mentionedNotesInfo);
+                
+                switch (this.executionMode) {
+                    case 'plan-execute':
+                        response = await this.geminiService.sendMessageWithProgress(
+                            model, 
+                            this.mentionedNotesInfo,
+                            (progressData: PlanProgressData) => {
+                                this.updatePlanProgress(loadingMessage, progressData);
+                            }
+                        );
+                        break;
+                    case 'single-tool':
+                        response = await this.geminiService.sendMessageLegacy(model, this.mentionedNotesInfo);
+                        break;
+                    case 'no-tools':
+                        const lastUserMsg = this.geminiService.getHistory().slice(-1)[0];
+                        const conversationContext = this.geminiService.getHistory().slice(0, -1).slice(-20).map(m => `${m.role}: ${m.content}`).join('\n');
+                        response = await this.geminiService.sendMessageWithoutTools(model, lastUserMsg, conversationContext);
+                        break;
+                    default:
+                        response = await this.geminiService.sendMessageLegacy(model, this.mentionedNotesInfo);
                 }
 
                 // 로딩 메시지 제거

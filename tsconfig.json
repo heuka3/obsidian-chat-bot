@@ -25,6 +25,7 @@
   "exclude": [
     "mcp-client_ex.ts",
     "node_modules/**/*",
-    "**/node_modules/**/*"
+    "**/node_modules/**/*",
+    "mcp_servers/**/*"
   ]
 }

@@ -49,7 +49,7 @@ export default class ChatbotPlugin extends Plugin {
   }
 
   // API 키 변경 시 호출되는 메서드
-  onApiKeyChanged(apiKey: string, provider: 'openai' | 'gemini') {
+  onApiKeyChanged(apiKey: string, provider: 'gemini') {
     console.log(`${provider} API key changed in plugin:`, apiKey ? 'Key set' : 'Key cleared');
     
     // 현재 열린 모든 ChatbotView 인스턴스에 API 키 업데이트
@@ -62,8 +62,8 @@ export default class ChatbotPlugin extends Plugin {
     });
   }
 
-  // AI 제공자 변경 시 호출되는 메서드
-  onProviderChanged(provider: 'openai' | 'gemini') {
+  // AI 제공자 변경 시 호출되는 메서드 (현재는 Gemini만 지원)
+  onProviderChanged(provider: 'gemini') {
     console.log('AI provider changed to:', provider);
     
     // 현재 열린 모든 ChatbotView 인스턴스에 제공자 변경 알림
