@@ -1,0 +1,175 @@
+
+> wikipedia@1.0.0 test
+> npm run build:test && node build/test/test_function.js
+
+
+> wikipedia@1.0.0 build:test
+> tsc
+
+Wikipedia Functions Test
+======================
+Usage: npm run test [query]
+Example: npm run test "Machine Learning"
+
+=== Testing Wikipedia functions with query: "What is the most important thing in life?" ===
+
+1. Testing get_wiki_search...
+-----------------------------------
+Search results for What is the most important thing in life?: {
+  results: [
+    { ns: 0, title: 'What Is Life?', pageid: 2334511 },
+    { ns: 0, title: 'Meaning of life', pageid: 20347 },
+    { ns: 0, title: 'The One Thing (book)', pageid: 64509239 },
+    { ns: 0, title: 'What Is Love', pageid: 2694466 },
+    { ns: 0, title: 'Importance', pageid: 71229276 },
+    { ns: 0, title: 'Thing (comics)', pageid: 75827 },
+    {
+      ns: 0,
+      title: "Winning isn't everything; it's the only thing",
+      pageid: 2010655
+    },
+    { ns: 0, title: 'What Is It Like to Be a Bat?', pageid: 10107763 },
+    { ns: 0, title: 'The Next Right Thing', pageid: 61925244 },
+    { ns: 0, title: 'Thing (assembly)', pageid: 198970 }
+  ],
+  suggestion: null
+}
+Search Results:
+- Results found: 10
+- Suggestion: None
+- All results:
+  1. What Is Life?
+     No snippet
+  2. Meaning of life
+     No snippet
+  3. The One Thing (book)
+     No snippet
+  4. What Is Love
+     No snippet
+  5. Importance
+     No snippet
+  6. Thing (comics)
+     No snippet
+  7. Winning isn't everything; it's the only thing
+     No snippet
+  8. What Is It Like to Be a Bat?
+     No snippet
+  9. The Next Right Thing
+     No snippet
+  10. Thing (assembly)
+     No snippet
+
+2. Testing get_wiki_intro...
+-----------------------------------
+Intro for What Is Life?: What Is Life? The Physical Aspect of the Living Cell is a 1944 science book written for the lay reader by the physicist Erwin Schrödinger.  The book was based on a course of public lectures delivered by Schrödinger in February 1943, under the auspices of the Dublin Institute for Advanced Studies, where he was Director of Theoretical Physics, at Trinity College, Dublin.  The lectures attracted an audience of about 400, who were warned "that the subject-matter was a difficult one and that the lectures could not be termed popular, even though the physicist’s most dreaded weapon, mathematical deduction, would hardly be utilized."  Schrödinger's lecture focused on one important question: "how can the events in space and time which take place within the spatial boundary of a living organism be accounted for by physics and chemistry?"
+In the book, Schrödinger introduced the idea of an "aperiodic solid" that contained genetic information in its configuration of covalent chemical bonds. In the 1940s, this idea stimulated enthusiasm for discovering the chemical basis of genetic inheritance. Although the existence of some form of hereditary information had been hypothesized since 1869, its role in reproduction and its helical shape were still unknown at the time of Schrödinger's lecture. In 1953, James D. Watson and Francis Crick jointly proposed the double helix structure of deoxyribonucleic acid (DNA) on the basis of, amongst other theoretical insights, X-ray diffraction experiments conducted by Rosalind Franklin. They both credited Schrödinger's book with presenting an early theoretical description of how the storage of genetic information would work, and each independently acknowledged the book as a source of inspiration for their initial researches.
+
+
+Intro length: 1775
+First 200 characters: What Is Life? The Physical Aspect of the Living Cell is a 1944 science book written for the lay reader by the physicist Erwin Schrödinger.  The book was based on a course of public lectures delivered ...
+
+3. Testing get_wiki_summary...
+-----------------------------------
+Summary for What Is Life?: {
+  type: 'standard',
+  title: 'What Is Life',
+  displaytitle: '<span class="mw-page-title-main">What Is Life</span>',
+  namespace: { id: 0, text: '' },
+  wikibase_item: 'Q925185',
+  titles: {
+    canonical: 'What_Is_Life',
+    normalized: 'What Is Life',
+    display: '<span class="mw-page-title-main">What Is Life</span>'
+  },
+  pageid: 5008445,
+  thumbnail: {
+    source: 'https://upload.wikimedia.org/wikipedia/en/2/23/What_Is_Life_%28George_Harrison_single_-_cover_art%29.jpg',
+    width: 320,
+    height: 310
+  },
+  originalimage: {
+    source: 'https://upload.wikimedia.org/wikipedia/en/2/23/What_Is_Life_%28George_Harrison_single_-_cover_art%29.jpg',
+    width: 320,
+    height: 310
+  },
+  lang: 'en',
+  dir: 'ltr',
+  revision: '1286718529',
+  tid: 'c6bbb398-1ec7-11f0-87fd-2da8a3797bc6',
+  timestamp: '2025-04-21T15:46:23Z',
+  description: '1970 song by George Harrison',
+  description_source: 'local',
+  content_urls: {
+    desktop: {
+      page: 'https://en.wikipedia.org/wiki/What_Is_Life',
+      revisions: 'https://en.wikipedia.org/wiki/What_Is_Life?action=history',
+      edit: 'https://en.wikipedia.org/wiki/What_Is_Life?action=edit',
+      talk: 'https://en.wikipedia.org/wiki/Talk:What_Is_Life'
+    },
+    mobile: {
+      page: 'https://en.m.wikipedia.org/wiki/What_Is_Life',
+      revisions: 'https://en.m.wikipedia.org/wiki/Special:History/What_Is_Life',
+      edit: 'https://en.m.wikipedia.org/wiki/What_Is_Life?action=edit',
+      talk: 'https://en.m.wikipedia.org/wiki/Talk:What_Is_Life'
+    }
+  },
+  extract: `"What Is Life" is a song by the English rock musician George Harrison from his 1970 triple album All Things Must Pass. In many countries, it was issued as the second single from the album, in February 1971, becoming a top-ten hit in the United States, Canada and elsewhere, and topping singles charts in Australia and Switzerland. In the United Kingdom, "What Is Life" appeared as the B-side to "My Sweet Lord", which was the best-selling single there of 1971. Harrison's backing musicians on the song include Eric Clapton and the entire Delaney & Bonnie and Friends band, with whom he had toured during the final months of the Beatles. Harrison co-produced the recording with Phil Spector, whose Wall of Sound production also employed a prominent string arrangement by John Barham and multiple acoustic rhythm guitars, played by Harrison's fellow Apple Records signings Badfinger.`,
+  extract_html: `<p>"<b>What Is Life</b>" is a song by the English rock musician George Harrison from his 1970 triple album <i>All Things Must Pass</i>. In many countries, it was issued as the second single from the album, in February 1971, becoming a top-ten hit in the United States, Canada and elsewhere, and topping singles charts in Australia and Switzerland. In the United Kingdom, "What Is Life" appeared as the B-side to "My Sweet Lord", which was the best-selling single there of 1971. Harrison's backing musicians on the song include Eric Clapton and the entire Delaney &amp; Bonnie and Friends band, with whom he had toured during the final months of the Beatles. Harrison co-produced the recording with Phil Spector, whose Wall of Sound production also employed a prominent string arrangement by John Barham and multiple acoustic rhythm guitars, played by Harrison's fellow Apple Records signings Badfinger.</p>`
+}
+Summary length: undefined
+
+4. Testing get_wiki_content...
+-----------------------------------
+Content for What Is Life?: What Is Life? The Physical Aspect of the Living Cell is a 1944 science book written for the lay reader by the physicist Erwin Schrödinger.  The book was based on a course of public lectures delivered by Schrödinger in February 1943, under the auspices of the Dublin Institute for Advanced Studies, where he was Director of Theoretical Physics, at Trinity College, Dublin.  The lectures attracted an audience of about 400, who were warned "that the subject-matter was a difficult one and that the lectures could not be termed popular, even though the physicist’s most dreaded weapon, mathematical deduction, would hardly be utilized."  Schrödinger's lecture focused on one important question: "how can the events in space and time which take place within the spatial boundary of a living organism be accounted for by physics and chemistry?"
+In the book, Schrödinger introduced the idea of an "aperiodic solid" that contained genetic information in its configuration of covalent chemical bonds. In the 1940s, this idea stimulated enthusiasm for discovering the chemical basis of genetic inheritance. Although the existence of some form of hereditary information had been hypothesized since 1869, its role in reproduction and its helical shape were still unknown at the time of Schrödinger's lecture. In 1953, James D. Watson and Francis Crick jointly proposed the double helix structure of deoxyribonucleic acid (DNA) on the basis of, amongst other theoretical insights, X-ray diffraction experiments conducted by Rosalind Franklin. They both credited Schrödinger's book with presenting an early theoretical description of how the storage of genetic information would work, and each independently acknowledged the book as a source of inspiration for their initial researches.
+
+
+== Background ==
+The book, published in 1944, is based on lectures delivered under the auspices of the Dublin Institute for Advanced Studies at Trinity College, Dublin in February 1943, attended by Éamon de Valera and his cabinet. At that time, although DNA was known to be a constituent of cell nuclei, it had not yet been identified with certainty as the molecular basis of inheritance, and the concept of a "heredity molecule" was strictly theoretical, with various candidates. One of the most successful branches of physics at this time was statistical physics. Schrödinger himself is one of the founding fathers of quantum mechanics, a theory which posits a statistical focus for understanding the natural world at subatomic scale.
+Max Delbrück's thinking about the physical basis of life was an important influence on Schrödinger. However, long before the publication of What is Life?, the American geneticist Hermann J. Muller, who would later win a Nobel Prize in 1946, had in his 1922 article "Variation due to Change in the Individual Gene" already laid out all the basic properties of the "heredity molecule" (not yet known to be DNA) which Schrödinger re-derived in 1944 "from first principles" in What is Life? (including the "aperiodicity" of the molecule), properties which Muller specified and refined additionally in his 1929 article "The Gene As The Basis of Life" and during the 1930s.  Muller himself wrote in a 1960 letter to a journalist regarding What Is Life? that whatever the book got right about the "hereditary molecule" had already been published before 1944 and that Schrödinger's were only the wrong speculations; Muller also named two famous geneticists, including Delbrück, who knew every relevant pre-1944 publication and had been in contact with Schrödinger before 1944. DNA as the molecule of heredity became foremost only after Oswald Avery's bacterial-transformation experiments published in 1944; before those experiments, proteins were considered the most likely candidates. DNA was confirmed as the molecule in question by the
+Hershey–Chase experiment conducted in 1952.
+
+
+== Content ==
+In Chapter I, Schrödinger explains that most physical laws on a large scale are due to chaos on a small scale. He calls this principle "order-from-disorder". As an example he mentions diffusion, which can be modeled as a highly ordered process, but which is nevertheless caused by random movement of atoms or molecules. As the number of atoms is reduced, the behaviour of a system becomes increasingly random. He states that life greatly depends on order and that a naïve physicist may assume that the master code of a living organism has to consist of a large number of atoms.
+In Chapter II and III, he summarizes what was known at the time about the hereditary mechanism. Most importantly, he elaborates on the role mutations play in biological evolution. He concludes that the carrier of hereditary information has to be both small in size and permanent in time, contradicting the naïve physicist's expectation. This contradiction cannot be resolved by classical physics.
+In Chapter IV, Schrödinger presents molecules, which are indeed stable even if they consist of only a few atoms, as the solution. Even though molecules had long been known to exist, their stability could not be explained by classical physics due to the discrete nature of quantum mechanics. Furthermore, mutations are directly linked to quantum leaps.
+He continues to explain, in chapter V, that true solids, which are also permanent, are composed of highly ordered crystals. The stability of molecules and crystals is due to the same principles, and a molecule might be called "the germ of a solid". On the other hand, an amorphous solid, without crystalline structure, should be regarded as a liquid with a very high viscosity. Schrödinger writes that the heredity material is likely to be a molecule, which unlike a crystal does not repeat itself. He calls this an "aperiodic crystal". Its aperiodic nature allows it to encode an almost infinite number of possibilities with a small number of atoms. He finally compares this picture with the known facts and finds it in accordance with them.
+In Chapter VI, Schrödinger states:
+
+ ...living matter, while not eluding the "laws of physics" as established up to date, is likely to involve "other laws of physics" hitherto unknown, which however, once they have been revealed, will form just as integral a part of science as the former.
+He anticipates that this statement will be open to misconception and tries to clarify it. The main principle involved with "order-from-disorder" is the second law of thermodynamics, according to which entropy only increases in a closed system (such as the universe). Schrödinger explains that living matter evades the decay to thermodynamical equilibrium by homeostatically maintaining negative entropy in an open system.
+In Chapter VII, he maintains that "order-from-order" is not absolutely new to physics; in fact, it is even simpler and more plausible. But nature follows "order-from-disorder", with such exceptions as the predictable movement of the celestial bodies and the behaviour of mechanical devices such as clocks. Even those are influenced by thermal and frictional forces. The degree to which a system functions mechanically or randomly depends on the temperature. If sufficiently heated, a clock melts into a puddle of randomly moving molecules. Conversely, if the temperature approaches absolute zero, any system behaves more and more mechanically. Some systems, such as clocks, approach this mechanical behaviour even at room temperature.
+
+Schrödinger concludes this chapter and the book with philosophical speculations on determinism, free will, and the mystery of human consciousness. He attempts to "see whether we cannot draw the correct non-contradictory conclusion from the following two premises: (1) My body functions as a pure mechanism according to Laws of Nature; and (2) Yet I know, by incontrovertible direct experience, that I am directing its motions, of which I foresee the effects, that may be fateful and all-important, in which case I feel and take full responsibility for them. The only possible inference from these two facts is, I think, that I – I in the widest meaning of the word, that is to say, every conscious mind that has ever said or felt 'I' – am the person, if any, who controls the 'motion of the atoms' according to the Laws of Nature". Schrödinger then states that this insight is not new and that the Upanishads considered this insight of "ATMAN = BRAHMAN" to "represent quintessence of deepest insights into the happenings of the world." Schrödinger rejects the idea that the source of consciousness should perish with the body because he finds the idea "distasteful". He also rejects the idea that there are multiple immortal souls that can exist without the body because he believes that consciousness is nevertheless highly dependent on the body. Schrödinger writes that, to reconcile the two premises,"The only possible alternative is simply to keep to the immediate experience that consciousness is a singular of which the plural is unknown; that there is only one thing and that what seems to be a plurality is merely a series of different aspects of this one thing…:
+Any intuitions that consciousness is plural, he says, are illusions. Schrödinger is sympathetic to the Hindu concept of Brahman, by which each individual's consciousness is only a manifestation of a unitary consciousness pervading the universe — which corresponds to the Hindu concept of God. Schrödinger concludes that "...'I' am the person, if any, who controls the 'motion of the atoms' according to the Laws of Nature." However, he also qualifies the conclusion as "necessarily subjective" in its "philosophical implications". In the final paragraph, he points out that what is meant by "I" is not the collection of experienced events but "namely the canvas upon which they are collected." If a hypnotist succeeds in blotting out all earlier reminiscences, he writes, there would be no loss of personal existence — "Nor will there ever be."
+
+
+== Schrödinger's "paradox" ==
+
+In a world governed by the second law of thermodynamics, all isolated systems are expected to approach a state of maximum disorder or entropy: an irreversible state of thermodynamic equilibrium, where free energy is no longer available to do work. It has been argued that, since life approaches and maintains a highly ordered state, it violates the aforementioned second law, implying that there is a paradox. However, since the biosphere is not an isolated system, there is no paradox. The increase of order inside an organism is more than paid for by an increase in disorder outside this organism by the loss of heat into the environment. By this mechanism, the second law is obeyed, and life maintains a highly ordered state, which it sustains by causing a net increase in disorder in the Universe. In order to increase the complexity on Earth—as life does—free energy is needed, and in this case is provided by the Sun.
+
+
+== Editions ==
+Erwin Schrödinger (1944), What Is Life? and Other Scientific Essays. Based on lectures delivered under the auspices of the Dublin Institute for Advanced Studies at Trinity College, Dublin, in February 1943. Doubleday (1956) and Internet Archive.
+
+
+== See also ==
+Entropy and life
+Gibbs free energy
+James D. Watson
+Quantum Aspects of Life
+Philosophy of biology
+
+
+== References ==
+
+
+== External links ==
+Österr. Zentralbibliothek für Physik Scan of the title and first part of the contents
+(in Italian) Critical interdisciplinary review of Schrödinger's "What Is life?"
+Schrödinger's influence on biology
+Content length: 11515
+First 300 characters: What Is Life? The Physical Aspect of the Living Cell is a 1944 science book written for the lay reader by the physicist Erwin Schrödinger.  The book was based on a course of public lectures delivered by Schrödinger in February 1943, under the auspices of the Dublin Institute for Advanced Studies, wh...
+
+=== Test completed ===

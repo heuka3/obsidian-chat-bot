@@ -1,0 +1,23 @@
+Google made a version of its Gemini 2.5 Deep Think artificial intelligence model available Friday (Aug. 1) in the Gemini app to Google AI Ultra subscribers.
+This model is a “significant improvement” over what Google announced in May at its Google I/O conference and is a variation of the one that achieved the gold-medal standard at this year’s International Math Olympiad, the company said in a Friday blog post.
+The model released Friday to Google AI Ultra subscribers is designed for day-to-day use, reaching bronze-level performance on the 2025 IMO benchmark while operating faster, according to the post.
+Deep Think uses parallel thinking techniques, meaning it generates several ideas, considers them simultaneously and then arrives at the best answer, the post said.
+This model is likely to be used for iterative development and design, such as in web development; scientific and mathematical discovery; and algorithmic development and code, where it excels at tough coding problems, per the post.
+“Deep Think can help people tackle problems that require creativity, strategic planning and making improvements step-by-step…,” the post said.
+Google also said Friday that it released the version of Google 2.5 Deep Think that achieved the gold-medal standard with a small group of mathematicians and academics.
+“We look forward to hearing how it could enhance their research and inquiry, and we’ll use their feedback as we continue to improve this offering,” the company said in the post.
+Deep Think mode was announced at Google I/O in May along with other Gemini AI models. The lineup included Gemini 2.5 Pro; Updated Gemini 2.5 Flash, described as a faster, more efficient model; Deep Think mode, described as a high-performance version of Gemini 2.5 Pro for complex reasoning; and Gemini SDK, which provides compatibility with Model Context Protocol (MCP) to let agents use a variety of tools.
+Google parent company Alphabet said in July that it raised its projected capital expenditures to $85 billion in 2025 to support its AI infrastructure.
+The company spent $52.5 billion in 2024 and previously said it would spend $75 billion in 2025.
+“Our AI infrastructure investments are crucial to meeting the growth and demand from cloud customers,” Alphabet and Google CEO Sundar Pichai said July 23 during the company’s second-quarter earnings call.
+*For all PYMNTS AI coverage, subscribe to the daily* *AI Newsletter**.*
+## Pinterest CEO Says Consumers Benefit From AI-Powered Tools
+Pinterest CEO Bill Ready said Friday (Aug. 8) that it will be some time before consumers are ready to let artificial intelligence (AI) agents do their shopping for them, but that Pinterest is providing AI-powered tools that will “meet the user where they are” in the meantime.
+Speaking during the company’s quarterly earnings call, and responding to an analyst’s question about how agentic AI may impact the search funnel, Ready said that in terms of AI agents buying things without the customer being involved, it’s going to be “a very, very long cycle for that to play out” because customers will have to get used to that idea.
+“But if we look at what’s happening on our platform already, we’re able to take the user much further down that shopping journey assisting them,” Ready said, according to the company’s transcript of the call.
+Ready said Pinterest has “really made AI central to everything that we’re doing.” He pointed to the platform’s ability to make recommendations that align with each user’s taste and style, to effectively curate products for users based on very small signals, and to save users some of the time and work that goes into the shopping journey.
+“We see really great early signs of that,” Ready said. “And we think there’s a lot more that we’re going to be able to do there that we will focus on in a very user-centric way that meets the user where they are, but with AI and LLMs (large language models) and agentic capabilities deeply embedded in the way that we’re doing that.”
+The company aims to use generative AI to keep discovery joyful and make shopping frictionless, Pinterest Vice President of Design Dana Cho told PYMNTS CEO Karen Webster in an interview posted in May.
+“Technology has nailed the buying part,” Cho said. “Now, we’re bringing the joy back to shopping.”
+The PYMNTS Intelligence and Fiserv collaboration “GenAI Applications in Retail Transaction Analysis: Industry Trends and Insights” found that retailers are rapidly adopting Gen AI to enhance customer personalization.
+Fifty-four percent of retailers used the technology to analyze transaction and payments data for customer segmentation in the last year, according to the report.

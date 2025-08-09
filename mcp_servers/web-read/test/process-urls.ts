@@ -42,16 +42,20 @@ async function processUrls() {
         // Convert URL to markdown
         const {markdown, resolvedURL} = await urlToMarkdown(url);
 
-        // Generate a safe filename from URL
-        const urlObj = new URL(url);
+        // Generate a safe filename from resolvedURL, limit length to avoid ENAMETOOLONG
+        const urlForFilename = resolvedURL || url;
+        const urlObj = new URL(urlForFilename);
         const hostname = urlObj.hostname.replace(/[^a-zA-Z0-9]/g, '_');
         const pathname = urlObj.pathname.replace(/[^a-zA-Z0-9]/g, '_');
-        const filename = `${hostname}${pathname || '_index'}.md`;
-        
+        let baseFilename = `${hostname}${pathname || '_index'}`;
+        // Ensure baseFilename is unique
+        // Limit filename length to 100 chars (excluding extension)
+        if (baseFilename.length > 100) {
+          baseFilename = baseFilename.slice(0, 100);
+        }
+        const filename = `${baseFilename}.md`;
         // Write markdown to file
         const outputPath = path.join(outputDir, filename);
-        //const fullContent = `# ${url}\n\nSource: ${url}\nGenerated: ${new Date().toISOString()}\n\n---\n\n${markdown}`;
-        
         fs.writeFileSync(outputPath, markdown, 'utf-8');
         console.log(`✅ Successfully saved: ${filename}`);
         
@@ -64,13 +68,17 @@ async function processUrls() {
       } catch (error) {
         console.error(`❌ Failed to process ${url}:`, error instanceof Error ? error.message : 'Unknown error');
         
-        // Create an error file
-        const urlObj = new URL(url);
+        // Create an error file, use resolvedURL for filename, limit filename length
+        const urlForFilename = url;
+        const urlObj = new URL(urlForFilename);
         const hostname = urlObj.hostname.replace(/[^a-zA-Z0-9]/g, '_');
         const pathname = urlObj.pathname.replace(/[^a-zA-Z0-9]/g, '_');
-        const filename = `ERROR_${hostname}${pathname || '_index'}.md`;
+        let baseFilename = `ERROR_${hostname}${pathname || '_index'}`;
+        if (baseFilename.length > 100) {
+          baseFilename = baseFilename.slice(0, 100);
+        }
+        const filename = `${baseFilename}.md`;
         const outputPath = path.join(outputDir, filename);
-        
         const errorContent = `# Error Processing ${url}\n\nSource: ${url}\nGenerated: ${new Date().toISOString()}\n\n---\n\n**Error:** ${error instanceof Error ? error.message : 'Unknown error'}\n`;
         fs.writeFileSync(outputPath, errorContent, 'utf-8');
       }

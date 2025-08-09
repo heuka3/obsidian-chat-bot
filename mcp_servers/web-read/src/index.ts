@@ -6,6 +6,8 @@ import { z } from "zod";
 import {JSDOM} from 'jsdom';
 import puppeteer from 'puppeteer';
 import TurndownService from 'turndown';
+import { Readability } from "@mozilla/readability";
+
 // vertexaisearch.cloud.google.com 중개 URL을 실제 URL로 변환 (HEAD 요청)
 async function resolveFinalUrlHead(groundingUrl: string): Promise<string> {
   const response = await fetch(groundingUrl, {
@@ -39,32 +41,33 @@ export async function urlToMarkdown(url: string): Promise<{ markdown: string, re
       }
     }
 
-    let html = await fetchHtml(url);
-    // HTML 전처리 - 불필요한 요소들 제거
-    html = cleanHtml(html);
+    let html = '';
+    if (resolvedURL) {
+      console.log(`Fetching HTML from resolved URL: ${resolvedURL}`);
+      html = await fetchHtml(resolvedURL);
+    } else {
+      console.log(`Fetching HTML from original URL: ${url}`);
+      html = await fetchHtml(url);
+    }
 
-    // DOM 파싱 및 메인 컨텐츠 추출
-    const dom = new JSDOM(html);
-    const mainContent = extractMainContent(dom.window.document);
+    // DOM 파싱
+    const doc = new JSDOM(html);
+    const reader = new Readability(doc.window.document);
+    const article = reader.parse();
 
     // Turndown을 사용하여 HTML을 Markdown으로 변환
     const turndownService = createTurndownService();
-    let markdown = turndownService.turndown(mainContent);
+    let markdown = '';
+    if (article?.content) {
+      markdown = turndownService.turndown(article.content);
+    } else {
+      markdown = article?.textContent || '';
+    }
+
     // 두 번 이상 연속된 개행을 한 번으로 치환
     markdown = markdown.replace(/\n{2,}/g, '\n');
 
-    // resolvedURL이 있으면 마크다운의 헤더/Source 부분을 새로 작성
-    let headerBlock = '';
-    if (resolvedURL) {
-      const generatedDate = new Date().toISOString();
-      headerBlock = `# ${resolvedURL}\n\nSource: ${resolvedURL}\nGenerated: ${generatedDate}\n\n---\n`;
-    } else {
-      const generatedDate = new Date().toISOString();
-      headerBlock = `# ${url}\n\nSource: ${url}\nGenerated: ${generatedDate}\n\n---\n`;
-    }    
-    markdown = headerBlock + markdown.trim();
-
-    return {markdown: markdown.trim(), resolvedURL: resolvedURL ? resolvedURL : url};
+    return {markdown: markdown!.trim(), resolvedURL: resolvedURL ? resolvedURL : url};
   } catch (error) {
     throw new Error(`Failed to convert URL to markdown: ${error instanceof Error ? error.message : 'Unknown error'}`);
   }
@@ -187,34 +190,6 @@ async function fetchWithPuppeteer(url: string): Promise<string> {
   }
 }
 
-// HTML 전처리 함수 - 불필요한 태그들 완전 제거
-function cleanHtml(html: string): string {
-  const tagsToRemove = [
-    'script', 'style', 'noscript', 'iframe', 'embed', 'object',
-    'form', 'input', 'button', 'select', 'textarea',
-    'svg', 'canvas', 'video', 'audio', 'img', 'picture', 'source', 'track'
-  ];
-  
-  let cleaned = html;
-  
-  // 태그와 내용 모두 제거
-  tagsToRemove.forEach(tag => {
-    const regex = new RegExp(`<${tag}[^>]*>.*?<\/${tag}>`, 'gis');
-    cleaned = cleaned.replace(regex, '');
-    // 자체 닫힘 태그도 제거
-    const selfClosingRegex = new RegExp(`<${tag}[^>]*\/?>`, 'gi');
-    cleaned = cleaned.replace(selfClosingRegex, '');
-  });
-  
-  // a 태그는 내용만 유지하고 태그는 제거
-  cleaned = cleaned.replace(/<a[^>]*>(.*?)<\/a>/gis, '$1');
-  
-  // 주석 제거
-  cleaned = cleaned.replace(/<!--[\s\S]*?-->/g, '');
-  
-  return cleaned;
-}
-
 // Turndown 서비스 설정
 function createTurndownService(): TurndownService {
   const turndownService = new TurndownService({
@@ -229,7 +204,7 @@ function createTurndownService(): TurndownService {
   // 링크는 텍스트만 유지
   turndownService.addRule('links', {
     filter: 'a',
-    replacement: function(content) {
+    replacement: function (content) {
       return content;
     }
   });
@@ -237,92 +212,240 @@ function createTurndownService(): TurndownService {
   // 이미지 완전 제거
   turndownService.addRule('images', {
     filter: 'img',
-    replacement: function() {
+    replacement: function () {
       return '';
     }
   });
 
+  // ========================
+  // 유틸리티 (테이블 변환용)
+  // ========================
+  function isHidden(el: Element | null): boolean {
+    if (!el) return false;
+    if (el.hasAttribute('hidden')) return true;
+    const style = (el.getAttribute('style') || '').toLowerCase();
+    return /display\s*:\s*none/.test(style);
+  }
 
-  // 표 전체: 헤더와 구분선 자동 추가
+  function mdFromCell(cell: Element): string {
+    // 셀 내부의 마크업을 turndown으로 변환 (링크/강조/코드 등 보존)
+    let md = turndownService.turndown((cell as HTMLElement).innerHTML || '').trim();
+    
+    // 불필요한 UI 요소 제거
+    md = md.replace(/\[\s*펼치기[^]]*접기\s*\]/g, '');
+    md = md.replace(/\[\s*접기[^]]*펼치기\s*\]/g, '');
+    
+    // GFM 테이블 안전화: 파이프 이스케이프 
+    md = md.replace(/\|/g, '\\|');
+    
+    // 줄바꿈 처리: 연속된 줄바꿈을 하나로 줄이고, 공백으로 치환
+    md = md.replace(/\n+/g, ' ').replace(/\s+/g, ' ').trim();
+    
+    // 셀 내용 길이 제한 (너무 긴 내용은 축약)
+    if (md.length > 100) {
+      md = md.substring(0, 97) + '...';
+    }
+    
+    return md;
+  }
+
+  function getAlign(cell: Element): 'left' | 'center' | 'right' {
+    const alignAttr = (cell.getAttribute('align') || '').toLowerCase();
+    const style = (cell.getAttribute('style') || '').toLowerCase();
+    const match = style.match(/text-align\s*:\s*(left|center|right)/);
+    const align = (alignAttr || (match ? match[1] : '')) as 'left' | 'center' | 'right' | '';
+    if (align === 'center') return 'center';
+    if (align === 'right') return 'right';
+    return 'left';
+  }
+
+  function alignToSep(align: 'left' | 'center' | 'right'): string {
+    // GFM: --- | :--- | :---: | ---:
+    if (align === 'center') return ':---:';
+    if (align === 'right') return '---:';
+    return ':---'; // 왼쪽 정렬 (가독성 위해 :--- 채택)
+  }
+
+  type GridCell = { el: Element; align: 'left' | 'center' | 'right' };
+
+  // colspan/rowspan을 확장하여 2D 그리드 구성
+  function tableToGrid(table: Element): GridCell[][] {
+    const grid: GridCell[][] = [];
+    const trs = Array.from(table.querySelectorAll('tr')).filter(tr => !isHidden(tr));
+
+    trs.forEach((tr, rIndex) => {
+      grid[rIndex] = grid[rIndex] || [];
+      let cIndex = 0;
+
+      // 이미 채워진 칸 건너뛰기
+      while (grid[rIndex][cIndex] !== undefined) cIndex++;
+
+      const cells = Array.from(tr.children).filter(td =>
+        (td.nodeName === 'TD' || td.nodeName === 'TH') && !isHidden(td)
+      );
+
+      cells.forEach(td => {
+        // 현재 행에서 비어있는 다음 칸 찾기
+        while (grid[rIndex][cIndex] !== undefined) cIndex++;
+
+        const colspan = Math.max(parseInt(td.getAttribute('colspan') || '1', 10) || 1, 1);
+        const rowspan = Math.max(parseInt(td.getAttribute('rowspan') || '1', 10) || 1, 1);
+
+        const cell: GridCell = {
+          el: td,
+          align: getAlign(td)
+        };
+
+        // 가로 확장
+        for (let i = 0; i < colspan; i++) {
+          grid[rIndex][cIndex + i] = cell;
+        }
+
+        // 세로 확장(rowspan): 아래 행에도 같은 참조를 배치
+        for (let j = 1; j < rowspan; j++) {
+          const rr = rIndex + j;
+          grid[rr] = grid[rr] || [];
+          for (let i = 0; i < colspan; i++) {
+            grid[rr][cIndex + i] = cell;
+          }
+        }
+
+        cIndex += colspan;
+      });
+    });
+
+    return grid;
+  }
+
+  function computeColumnAligns(grid: GridCell[][]): Array<'left' | 'center' | 'right'> {
+    const colCount = Math.max(...grid.map(row => row.length));
+    const aligns: Array<'left' | 'center' | 'right'> = new Array(colCount).fill('left') as any;
+
+    for (let c = 0; c < colCount; c++) {
+      // center > right > left 우선
+      for (let r = 0; r < grid.length; r++) {
+        const cell = grid[r][c];
+        if (cell?.align === 'center') {
+          aligns[c] = 'center';
+          break;
+        }
+      }
+      if (aligns[c] === 'left') {
+        for (let r = 0; r < grid.length; r++) {
+          const cell = grid[r][c];
+          if (cell?.align === 'right') {
+            aligns[c] = 'right';
+            break;
+          }
+        }
+      }
+    }
+    return aligns;
+  }
+
+  // ========================
+  // 테이블 규칙
+  // ========================
   turndownService.addRule('tables', {
     filter: ['table'],
-    replacement: function(content, node) {
-      // 표의 행 추출
-      const rows = Array.from(node.querySelectorAll('tr'));
-      if (rows.length === 0) return '';
+    replacement: function (_content: string, node: Node): string {
+      const table = node as HTMLTableElement;
 
-      // 첫 번째 행이 헤더인지 확인
-      const headerCells = Array.from(rows[0].children).filter(child => child.nodeName === 'TH' || child.nodeName === 'TD');
-      const header = headerCells.map(cell => cell.textContent?.trim() || '');
-      const headerLine = '| ' + header.join(' | ') + ' |';
-      const separatorLine = '| ' + header.map(() => '---').join(' | ') + ' |';
+      // 테이블 필터링: 너무 작거나 레이아웃용 테이블 제외
+      const rows = Array.from(table.querySelectorAll('tr')).filter(tr => !isHidden(tr));
+      if (rows.length < 2) return ''; // 최소 2행 이상
+      
+      // 데이터 테이블 여부 확인
+      const hasDataCells = rows.some(row => {
+        const cells = Array.from(row.children).filter(cell => 
+          (cell.nodeName === 'TD' || cell.nodeName === 'TH') && !isHidden(cell)
+        );
+        return cells.length >= 2 && cells.some(cell => {
+          const text = cell.textContent?.trim() || '';
+          return text.length > 0 && !text.includes('펼치기') && !text.includes('접기');
+        });
+      });
+      
+      if (!hasDataCells) return ''; // 의미있는 데이터가 없으면 건너뛰기
 
-      // 나머지 행들
-      const bodyLines = rows.slice(1).map(row => {
-        const cells = Array.from(row.children).filter(child => child.nodeName === 'TD' || child.nodeName === 'TH');
-        const cellTexts = cells.map(cell => cell.textContent?.trim() || '');
-        return '| ' + cellTexts.join(' | ') + ' |';
-      }).filter(line => line.replace(/\|/g, '').trim().length > 0);
+      // 캡션(있으면 이탤릭으로 표 위에 표시)
+      const captionEl = table.querySelector('caption');
+      const caption = captionEl ? turndownService.turndown(captionEl.innerHTML || '').trim() : '';
 
-      return '\n' + headerLine + '\n' + separatorLine + '\n' + bodyLines.join('\n') + '\n';
+      // span 확장 그리드 생성
+      const grid = tableToGrid(table);
+      if (!grid.length) return '';
+
+      // 헤더 행 결정: thead 우선, 없으면 첫 행에 TH 있으면 헤더
+      let headerRowIndex = -1;
+      const visibleTrs = Array.from(table.querySelectorAll('tr')).filter(tr => !isHidden(tr));
+      const theadTr = table.querySelector('thead tr');
+      if (theadTr) {
+        const idx = visibleTrs.indexOf(theadTr as HTMLTableRowElement);
+        if (idx >= 0) headerRowIndex = idx;
+      } else {
+        const firstRow = visibleTrs[0];
+        if (firstRow && firstRow.querySelector('th')) headerRowIndex = 0;
+      }
+
+      const colCount = Math.max(...grid.map(row => row.length));
+      if (colCount > 10) return ''; // 너무 많은 컬럼은 레이아웃용일 가능성
+
+      // 같은 셀을 여러 칸에서 참조할 수 있으므로 결과 캐시
+      const cache = new WeakMap<GridCell, string>();
+      const getCellText = (cell?: GridCell): string => {
+        if (!cell) return '';
+        if (cache.has(cell)) return cache.get(cell)!;
+        const md = mdFromCell(cell.el);
+        cache.set(cell, md);
+        return md;
+      };
+
+      // 헤더 라인 (없으면 빈 헤더 강제)
+      const headerCells: string[] =
+        headerRowIndex >= 0
+          ? Array.from({ length: colCount }, (_, i) => getCellText(grid[headerRowIndex][i]) || '')
+          : Array.from({ length: colCount }, () => '');
+
+      const headerLine = '| ' + headerCells.map(s => (s || ' ')).join(' | ') + ' |';
+
+      // 정렬 라인
+      const aligns = computeColumnAligns(grid);
+      const separatorLine = '| ' + aligns.map(a => alignToSep(a)).join(' | ') + ' |';
+
+      // 바디 라인
+      const startBody = headerRowIndex >= 0 ? headerRowIndex + 1 : 0;
+      const bodyLines: string[] = [];
+      for (let r = startBody; r < grid.length; r++) {
+        const row = grid[r];
+        const texts = Array.from({ length: colCount }, (_, c) => getCellText(row[c]) || '');
+        
+        // 의미있는 데이터가 있는 행만 포함
+        const hasData = texts.some(t => {
+          const cleanText = t.replace(/\\\|/g, '').replace(/<br>/g, '').trim();
+          return cleanText.length > 0 && !cleanText.includes('펼치기') && !cleanText.includes('접기');
+        });
+        
+        if (!hasData) continue;
+        bodyLines.push('| ' + texts.join(' | ') + ' |');
+      }
+
+      if (bodyLines.length === 0) return ''; // 의미있는 바디 행이 없으면 건너뛰기
+
+      // 최종 출력
+      let out = '\n';
+      if (caption) out += `*${caption}*\n\n`;
+      out += headerLine + '\n' + separatorLine + '\n' + bodyLines.join('\n') + '\n';
+      return out;
     }
   });
 
-  // 표 행/셀 규칙 제거 (tables에서 직접 처리)
+  // 주의: tr/td/th 개별 규칙을 추가하지 마세요(tables 규칙이 전체 치환)
+  // 주의: turndown-plugin-gfm의 table 플러그인을 함께 쓰지 말 것(중복)
 
   return turndownService;
 }
 
-// 메인 컨텐츠 추출 함수
-function extractMainContent(document: Document): string {
-  const mainSelectors = [
-    'main',
-    '[role="main"]',
-    'article',
-    '.article',
-    '.content',
-    '.main-content',
-    '.post-content',
-    '.entry-content',
-    '.page-content',
-    '#content',
-    '#main-content',
-    '#article'
-  ];
-  
-  // 메인 컨텐츠 찾기
-  for (const selector of mainSelectors) {
-    const element = document.querySelector(selector);
-    if (element && element.textContent && element.textContent.trim().length > 200) {
-      return element.outerHTML;
-    }
-  }
-  
-  // 메인 컨텐츠를 찾지 못했으면 body에서 불필요한 부분 제거 후 사용
-  const body = document.body;
-  if (body) {
-    const unwantedSelectors = [
-      'nav', 'header', 'footer', 'aside',
-      '.nav', '.navbar', '.navigation', '.menu',
-      '.header', '.footer', '.sidebar', '.aside',
-      '.advertisement', '.ad', '.ads', '.banner',
-      '.social', '.share', '.sharing',
-      '.cookie', '.popup', '.modal',
-      '.newsletter', '.subscription',
-      '.related', '.recommended', '.suggestions',
-      '.comments', '.comment-section'
-    ];
-    
-    unwantedSelectors.forEach(selector => {
-      const elements = body.querySelectorAll(selector);
-      elements.forEach(el => el.remove());
-    });
-    
-    return body.outerHTML;
-  }
-  
-  return document.documentElement.outerHTML;
-}
 
 // Define a tool that converts web pages to markdown
 server.tool(
